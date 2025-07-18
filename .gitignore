@@ -1,0 +1,37 @@
+# Node.js
+node_modules
+.env
+npm-debug.log
+yarn-debug.log
+.pnp
+.pnp.js
+
+# Next.js specific
+.next/
+out/
+
+# NestJS specific
+dist/
+*.tsbuildinfo
+.eslintcache
+
+# macOS
+.DS_Store
+
+# VS Code
+.vscode/
+
+# Editor config
+.idea/
+
+# Logs
+logs/
+*.log
+
+# Environment variables
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.staging.local
+.env.*.local
