@@ -11,6 +11,16 @@ import { FirebaseService } from './config/firebase/firebase.service';
 import { ServiceModule } from './service/service.module';
 import { Booking } from './booking/booking.entity';
 import { BookingModule } from './booking/booking.module';
+import { Locality } from './locality/locality.entity';
+import { ServiceCategory } from './service-category/service-category.entity';
+import { ServiceType } from './service-type/service-type.entity';
+import { ServiceRequest } from './service-request/service-request.entity';
+import { RatingReview } from './rating-review/rating-review.entity';
+import { LocalityModule } from './locality/locality.module';
+import { ServiceCategoryModule } from './service-category/service-category.module';
+import { ServiceTypeModule } from './service-type/service-type.module';
+import { ServiceRequestModule } from './service-request/service-request.module';
+import { RatingReviewModule } from './rating-review/rating-review.module';
 
 @Module({
   imports: [
@@ -26,7 +36,16 @@ import { BookingModule } from './booking/booking.module';
       username: process.env.DATABASE_USERNAME,
       password: process.env.DATABASE_PASSWORD,
       database: process.env.DATABASE_NAME,
-      entities: [User, Service, Booking], // We'll add our entities here later
+      entities: [
+        User, 
+        Service, 
+        Booking, 
+        Locality, 
+        ServiceCategory, 
+        ServiceType, 
+        ServiceRequest, 
+        RatingReview
+      ],
       synchronize: false, // Set to false in production! Use migrations.
       logging: true, // Enable logging for debugging
       // Add migrations configuration
@@ -35,8 +54,12 @@ import { BookingModule } from './booking/booking.module';
     }),
     AuthModule,
     ServiceModule,
-    //UserModule, 
     BookingModule,
+    LocalityModule,
+    ServiceCategoryModule,
+    ServiceTypeModule,
+    ServiceRequestModule,
+    RatingReviewModule,
   ],
   controllers: [AppController],
   providers: [AppService, FirebaseService],
