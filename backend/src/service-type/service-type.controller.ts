@@ -56,3 +56,4 @@ export class ServiceTypeController {
     return this.serviceTypeService.remove(id);
   }
 }
+

@@ -110,3 +110,6 @@ export class ServiceRequest {
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamp with time zone' })
   updatedAt: Date;
 }
+
+
+

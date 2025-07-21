@@ -64,3 +64,4 @@ export class Service {
   @OneToMany(() => Booking, booking => booking.service)
   bookings: Booking[];
 }
+

@@ -1,4 +1,5 @@
 // servemee/backend/src/main.ts
+import 'reflect-metadata'; 
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import * as admin from 'firebase-admin'; // Import firebase-admin
