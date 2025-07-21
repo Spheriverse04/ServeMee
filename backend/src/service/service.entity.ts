@@ -1,9 +1,9 @@
 // src/service/service.entity.ts
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
-import { User } from '../user/user.entity'; // Import the User entity
-import { Booking } from '../booking/booking.entity'; 
+import { User } from '../user/user.entity';
+import { Booking } from '../booking/booking.entity';
 
-@Entity('services') // Table name will be 'services'
+@Entity('services')
 export class Service {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -14,22 +14,24 @@ export class Service {
   @Column('text')
   description: string;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2 }) // Example: 10 digits total, 2 after decimal for currency
+  @Column({ type: 'decimal', precision: 10, scale: 2 })
   price: number;
 
-  @Column({ length: 50, nullable: true }) // Example: 'Plumbing', 'Electrical', 'Cleaning'
+  @Column({ length: 50, nullable: true })
   category: string;
 
-  @Column({ default: true }) // Is the service currently active/available?
+  @Column({ default: true })
   isActive: boolean;
 
-  // Many-to-one relationship with User (a Service belongs to one Provider)
-  @ManyToOne(() => User, user => user.services, { onDelete: 'CASCADE' }) // If user deleted, delete their services
-  @JoinColumn({ name: 'providerId' }) // The foreign key column in 'services' table will be 'providerId'
+  @Column({ type: 'text', nullable: true }) // Make imageUrl nullable
+  imageUrl: string | null; // Allow imageUrl to be null
+
+  @ManyToOne(() => User, user => user.services, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'providerId' })
   provider: User;
 
   @Column()
-  providerId: string; // Explicitly define the foreign key column
+  providerId: string;
 
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   createdAt: Date;
@@ -37,7 +39,6 @@ export class Service {
   @UpdateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP', onUpdate: 'CURRENT_TIMESTAMP' })
   updatedAt: Date;
 
-  // One-to-Many relationship with Booking
   @OneToMany(() => Booking, booking => booking.service)
   bookings: Booking[];
 }

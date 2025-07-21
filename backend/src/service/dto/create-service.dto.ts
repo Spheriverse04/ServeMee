@@ -1,6 +1,6 @@
 // src/service/dto/create-service.dto.ts
 import { IsString, IsNotEmpty, IsNumber, IsOptional, IsBoolean, Min, MaxLength } from 'class-validator';
-import { Type } from 'class-transformer'; // Needed for @Type() when converting string to number
+import { Type } from 'class-transformer';
 
 export class CreateServiceDto {
   @IsString()
@@ -14,8 +14,8 @@ export class CreateServiceDto {
 
   @IsNumber()
   @IsNotEmpty()
-  @Min(0) // Price cannot be negative
-  @Type(() => Number) // Ensure price is treated as a number even if from string input (e.g., JSON body)
+  @Min(0)
+  @Type(() => Number)
   price: number;
 
   @IsOptional()
@@ -25,5 +25,5 @@ export class CreateServiceDto {
 
   @IsOptional()
   @IsBoolean()
-  isActive?: boolean; // Default to true, but allow provider to set if they want
+  isActive?: boolean;
 }

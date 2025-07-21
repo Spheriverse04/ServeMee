@@ -13,10 +13,13 @@ export class User {
   @Index('idx_users_firebase_uid')
   firebaseUid: string;
 
+  @Column({ nullable: true, length: 100 })
+  displayName: string; // Add this column for display name
+
   @Column({ type: 'varchar', length: 255, unique: true, nullable: true })
   email: string;
 
-  @Column({ name: 'phone_number', type: 'varchar', length: 20, unique: true, nullable: false })
+  @Column({ name: 'phone_number', type: 'varchar', length: 20, unique: true, nullable: true })
   @Index('idx_users_phone_number')
   phoneNumber: string;
 
@@ -26,7 +29,7 @@ export class User {
   @Column({ name: 'profile_picture_url', type: 'text', nullable: true })
   profilePictureUrl: string;
 
-  @Column({ name: 'full_name', type: 'varchar', length: 255, nullable: false })
+  @Column({ name: 'full_name', type: 'varchar', length: 255, nullable: true })
   fullName: string;
 
   @Column({ type: 'varchar', length: 50, nullable: false })

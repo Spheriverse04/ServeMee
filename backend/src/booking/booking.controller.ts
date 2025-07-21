@@ -8,6 +8,7 @@ import { RolesGuard } from '../auth/roles/roles.guard';
 import { Roles } from '../auth/roles/roles.decorator';
 import { UserRole } from '../auth/roles/roles.enum';
 import { Request } from 'express';
+import { User } from '../user/user.entity'; // Import User for type hinting
 
 @UseGuards(FirebaseAuthGuard, RolesGuard)
 @Controller('bookings')
@@ -21,11 +22,12 @@ export class BookingController {
    */
   @Post()
   @Roles(UserRole.CONSUMER)
+  @HttpCode(HttpStatus.CREATED)
   async create(
     @Body() createBookingDto: CreateBookingDto,
-    @Req() req: Request,
+    @Req() req: Request & { user: User }, // Type the request to include user
   ) {
-    const consumerId = req.user!.id;
+    const consumerId = req.user.id; // Access user from req.user
     const booking = await this.bookingService.createBooking(createBookingDto, consumerId);
     return {
       message: 'Booking created successfully!',
@@ -39,10 +41,11 @@ export class BookingController {
    */
   @Get()
   @Roles(UserRole.CONSUMER, UserRole.SERVICE_PROVIDER)
-  async findAll(@Req() req: Request) {
-    const userId = req.user!.id;
-    const userRole = req.user!.role;
-    const bookings = await this.bookingService.findAllBookingsForUser(userId, userRole as UserRole);
+  async findAll(@Req() req: Request & { user: User }) { // Type the request
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    // Corrected method name: from findAllBookingsForUser to findBookingsForUser
+    const bookings = await this.bookingService.findBookingsForUser(userId, userRole as UserRole);
     return {
       message: 'Bookings fetched successfully!',
       bookings,
@@ -50,17 +53,18 @@ export class BookingController {
   }
 
   /**
-   * Endpoint for consumers AND service providers to view a specific booking.
+   * Endpoint for consumers AND service providers to view a single booking by ID.
    * GET /bookings/:id
    */
   @Get(':id')
   @Roles(UserRole.CONSUMER, UserRole.SERVICE_PROVIDER)
-  async findOne(@Param('id') id: string, @Req() req: Request) {
-    const userId = req.user!.id;
-    const userRole = req.user!.role;
-    const booking = await this.bookingService.findOneBookingForUser(id, userId, userRole as UserRole);
+  async findOne(@Param('id') id: string, @Req() req: Request & { user: User }) { // Type the request
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    // Corrected method name: from findOneBookingForUser to findOneBookingByIdAndUser
+    const booking = await this.bookingService.findOneBookingByIdAndUser(id, userId, userRole as UserRole);
     if (!booking) {
-      throw new NotFoundException('Booking not found');
+      throw new NotFoundException('Booking not found or you do not have permission.');
     }
     return {
       message: 'Booking fetched successfully!',
@@ -69,38 +73,21 @@ export class BookingController {
   }
 
   /**
-   * Endpoint for consumers to update a PENDING booking's time.
+   * Endpoint for consumers to update their own booking (e.g., change time/notes).
    * PATCH /bookings/:id
-   * UPDATED: Now allows Service Providers to update as well (e.g., add notes).
    */
   @Patch(':id')
-  @Roles(UserRole.CONSUMER, UserRole.SERVICE_PROVIDER) // <-- THIS LINE SHOULD BE UPDATED
+  @Roles(UserRole.CONSUMER)
   async update(
     @Param('id') id: string,
     @Body() updateBookingDto: UpdateBookingDto,
-    @Req() req: Request,
+    @Req() req: Request & { user: User },
   ) {
-    const userId = req.user!.id;
-    const userRole = req.user!.role;
-    const updatedBooking = await this.bookingService.updateBooking(id, updateBookingDto, userId, userRole as UserRole);
+    const consumerId = req.user.id;
+    const updatedBooking = await this.bookingService.updateBooking(id, updateBookingDto, consumerId);
     return {
       message: 'Booking updated successfully!',
       booking: updatedBooking,
-    };
-  }
-
-  /**
-   * Endpoint for a service provider to confirm a PENDING booking.
-   * PATCH /bookings/:id/confirm
-   */
-  @Patch(':id/confirm')
-  @Roles(UserRole.SERVICE_PROVIDER)
-  async confirm(@Param('id') id: string, @Req() req: Request) {
-    const providerId = req.user!.id;
-    const confirmedBooking = await this.bookingService.confirmBooking(id, providerId);
-    return {
-      message: 'Booking confirmed successfully!',
-      booking: confirmedBooking,
     };
   }
 
@@ -110,9 +97,9 @@ export class BookingController {
    */
   @Patch(':id/cancel')
   @Roles(UserRole.CONSUMER, UserRole.SERVICE_PROVIDER)
-  async cancel(@Param('id') id: string, @Req() req: Request) {
-    const userId = req.user!.id;
-    const userRole = req.user!.role;
+  async cancel(@Param('id') id: string, @Req() req: Request & { user: User }) { // Type the request
+    const userId = req.user.id;
+    const userRole = req.user.role;
     const cancelledBooking = await this.bookingService.cancelBooking(id, userId, userRole as UserRole);
     return {
       message: 'Booking cancelled successfully!',
@@ -126,8 +113,8 @@ export class BookingController {
    */
   @Patch(':id/reject')
   @Roles(UserRole.SERVICE_PROVIDER)
-  async reject(@Param('id') id: string, @Req() req: Request) {
-    const providerId = req.user!.id;
+  async reject(@Param('id') id: string, @Req() req: Request & { user: User }) { // Type the request
+    const providerId = req.user.id;
     const rejectedBooking = await this.bookingService.rejectBooking(id, providerId);
     return {
       message: 'Booking rejected successfully!',
@@ -141,8 +128,8 @@ export class BookingController {
    */
   @Patch(':id/complete')
   @Roles(UserRole.SERVICE_PROVIDER)
-  async complete(@Param('id') id: string, @Req() req: Request) {
-    const providerId = req.user!.id;
+  async complete(@Param('id') id: string, @Req() req: Request & { user: User }) { // Type the request
+    const providerId = req.user.id;
     const completedBooking = await this.bookingService.completeBooking(id, providerId);
     return {
       message: 'Booking completed successfully!',

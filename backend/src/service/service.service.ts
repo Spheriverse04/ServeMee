@@ -5,7 +5,10 @@ import { Repository } from 'typeorm';
 import { Service } from './service.entity';
 import { CreateServiceDto } from './dto/create-service.dto';
 import { UpdateServiceDto } from './dto/update-service.dto';
-import { User } from '../user/user.entity'; // Import User for type hinting and potential user-related logic
+import { User } from '../user/user.entity';
+import * as admin from 'firebase-admin';
+// import { File } from 'multer'; // REMOVE THIS LINE
+// No direct import needed for Multer.File if @types/multer augments Express global namespace
 
 @Injectable()
 export class ServiceService {
@@ -14,17 +17,52 @@ export class ServiceService {
     private servicesRepository: Repository<Service>,
   ) {}
 
-  /**
-   * Creates a new service for a given provider.
-   * @param createServiceDto The data for the new service.
-   * @param providerId The ID of the service provider (from authenticated user).
-   * @returns The newly created Service entity.
-   */
-  async createService(createServiceDto: CreateServiceDto, providerId: string): Promise<Service> {
+  private async uploadImage(file: Express.Multer.File | undefined): Promise<string | null> { // Use Express.Multer.File
+    if (!file) {
+      return null;
+    }
+
+    const bucket = admin.storage().bucket();
+    const fileName = `services/${Date.now()}_${file.originalname}`;
+    const fileUpload = bucket.file(fileName);
+
+    const blobStream = fileUpload.createWriteStream({
+      metadata: {
+        contentType: file.mimetype,
+      },
+    });
+
+    return new Promise((resolve, reject) => {
+      blobStream.on('error', (error) => {
+        console.error('Error uploading to Firebase Storage:', error);
+        reject(new InternalServerErrorException('Failed to upload image to storage.'));
+      });
+
+      blobStream.on('finish', async () => {
+        await fileUpload.makePublic();
+        const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileUpload.name}`;
+        resolve(publicUrl);
+      });
+
+      blobStream.end(file.buffer);
+    });
+  }
+
+  async createService(
+    createServiceDto: CreateServiceDto,
+    providerId: string,
+    file?: Express.Multer.File, // Use Express.Multer.File
+  ): Promise<Service> {
     try {
+      let imageUrl: string | null = null;
+      if (file) {
+        imageUrl = await this.uploadImage(file);
+      }
+
       const newService = this.servicesRepository.create({
         ...createServiceDto,
-        providerId: providerId, // Link the service to the authenticated provider
+        providerId: providerId,
+        imageUrl: imageUrl,
       });
       return await this.servicesRepository.save(newService);
     } catch (error) {
@@ -33,47 +71,40 @@ export class ServiceService {
     }
   }
 
-  /**
-   * Finds a service by its ID.
-   * @param id The ID of the service.
-   * @returns The Service entity or null if not found.
-   */
   async findOne(id: string): Promise<Service | null> {
     return this.servicesRepository.findOne({ where: { id } });
   }
 
-  /**
-   * Finds all services, optionally filtered by a provider ID.
-   * @param providerId Optional. The ID of the provider to filter services by.
-   * @returns An array of Service entities.
-   */
-  async findAllServices(providerId?: string): Promise<Service[]> {
-    const where: any = {};
-    if (providerId) {
-      where.providerId = providerId;
-    }
-    return this.servicesRepository.find({ where });
+  async findAllServices(): Promise<Service[]> {
+    return this.servicesRepository.find();
   }
 
-  /**
-   * Updates an existing service.
-   * @param id The ID of the service to update.
-   * @param updateServiceDto The data to update.
-   * @param providerId The ID of the service provider (to ensure they own the service).
-   * @returns The updated Service entity.
-   */
+  async findServicesByProvider(providerId: string): Promise<Service[]> {
+    return this.servicesRepository.find({ where: { providerId } });
+  }
+
   async updateService(
     id: string,
     updateServiceDto: UpdateServiceDto,
-    providerId: string, // Ensure only the owner can update
+    providerId: string,
+    file?: Express.Multer.File, // Use Express.Multer.File
   ): Promise<Service> {
-    const service = await this.servicesRepository.findOne({ where: { id, providerId } }); // Find by ID and providerId
+    const service = await this.servicesRepository.findOne({ where: { id, providerId } });
 
     if (!service) {
       throw new NotFoundException(`Service with ID ${id} not found or you don't have permission to update it.`);
     }
 
+    let newImageUrl: string | null | undefined = service.imageUrl;
+
+    if (file) {
+      newImageUrl = await this.uploadImage(file);
+    } else if (updateServiceDto.hasOwnProperty('imageUrl') && updateServiceDto.imageUrl === null) {
+      newImageUrl = null;
+    }
+
     Object.assign(service, updateServiceDto);
+    service.imageUrl = newImageUrl;
 
     try {
       return await this.servicesRepository.save(service);
@@ -83,13 +114,8 @@ export class ServiceService {
     }
   }
 
-  /**
-   * Deletes a service.
-   * @param id The ID of the service to delete.
-   * @param providerId The ID of the service provider (to ensure they own the service).
-   */
   async deleteService(id: string, providerId: string): Promise<void> {
-    const result = await this.servicesRepository.delete({ id, providerId }); // Delete by ID and providerId
+    const result = await this.servicesRepository.delete({ id, providerId });
 
     if (result.affected === 0) {
       throw new NotFoundException(`Service with ID ${id} not found or you don't have permission to delete it.`);

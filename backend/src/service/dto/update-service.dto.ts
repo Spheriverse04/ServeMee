@@ -26,4 +26,8 @@ export class UpdateServiceDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsString()
+  imageUrl?: string | null; // Allow imageUrl to be optional, string, or null
 }

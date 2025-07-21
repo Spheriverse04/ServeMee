@@ -1,132 +1,157 @@
 // src/auth/auth.service.ts
 import {
   Injectable,
-  BadRequestException,
   ConflictException,
   InternalServerErrorException,
   NotFoundException,
   UnauthorizedException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../user/user.entity';
-import { FirebaseService } from '../config/firebase/firebase.service';
-import * as admin from 'firebase-admin'; // Keep this import for admin.auth() methods
-import { UpdateProfileDto } from './dto/update-profile.dto';
-import { LoginDto } from './dto/login.dto'; // Import LoginDto
+import { RegisterUserDto } from './dto/register-user.dto';
+import * as admin from 'firebase-admin';
+import { UserRole } from './roles/roles.enum';
 
 @Injectable()
 export class AuthService {
-  private firebaseAuth: admin.auth.Auth;
-
   constructor(
     @InjectRepository(User)
-    private usersRepository: Repository<User>,
-    private firebaseService: FirebaseService,
-  ) {
-    this.firebaseAuth = this.firebaseService.getAuth();
-  }
+    private userRepository: Repository<User>,
+  ) {}
 
-  async registerUserAfterPhoneVerification(
-    phoneNumber: string,
-    firebaseUid: string,
-    fullName: string,
-    role: string,
-    username?: string,
-    email?: string,
-  ): Promise<User> {
-    try {
-      const existingUser = await this.usersRepository.findOne({
-        where: [{ firebaseUid: firebaseUid }, { phoneNumber: phoneNumber }],
-      });
+  /**
+   * Registers a new user in your application's database and Firebase.
+   * This assumes the Firebase user is created on the backend.
+   * @param registerUserDto The registration data including email, password, etc.
+   * @returns The created User entity.
+   */
+  async registerUser(registerUserDto: RegisterUserDto): Promise<User> {
+    const { email, password, fullName, phoneNumber, role, displayName } = registerUserDto;
 
-      if (existingUser) {
-        throw new ConflictException(
-          'User with this phone number or Firebase UID already exists.',
-        );
+    let firebaseUid: string;
+
+    // Check if user already exists in your database based on email or phone number
+    if (email) {
+      const existingEmailUser = await this.userRepository.findOne({ where: { email } });
+      if (existingEmailUser) {
+        throw new ConflictException('User with this email already exists.');
       }
+    }
+    // Also check for phone number if it's provided and unique in your schema
+    if (phoneNumber) {
+        const existingPhoneUser = await this.userRepository.findOne({ where: { phoneNumber } });
+        if (existingPhoneUser) {
+            throw new ConflictException('User with this phone number already exists.');
+        }
+    }
 
-      const newUser = this.usersRepository.create({
+
+    try {
+      // 1. Create user in Firebase Auth
+      const firebaseUser = await admin.auth().createUser({
+        email,
+        password,
+        displayName: fullName || displayName, // Use fullName or displayName for Firebase
+        phoneNumber,
+      });
+      firebaseUid = firebaseUser.uid;
+
+      // 2. Set custom claim for role
+      await admin.auth().setCustomUserClaims(firebaseUid, { role });
+
+      // 3. Save user to your PostgreSQL database
+      const user = this.userRepository.create({
         firebaseUid,
+        email,
+        displayName: displayName || fullName, // Use displayName or fullName
         phoneNumber,
         fullName,
-        role,
-        username,
-        email,
+        role: role as UserRole, // Cast to UserRole
+        isActive: true, // Default to active
       });
 
-      return await this.usersRepository.save(newUser);
+      return await this.userRepository.save(user);
     } catch (error) {
-      if (error instanceof ConflictException) {
-        throw error;
-      }
       console.error('Error during user registration:', error);
-      throw new InternalServerErrorException('Could not register user.');
+      // Handle Firebase-specific errors or database errors
+      if (error.code === 'auth/email-already-exists') {
+        throw new ConflictException('User with this email already exists in Firebase.');
+      }
+      if (error.code === 'auth/phone-number-already-exists') {
+        throw new ConflictException('User with this phone number already exists in Firebase.');
+      }
+      throw new InternalServerErrorException('Failed to register user.');
     }
   }
 
   /**
-   * Verifies a Firebase ID Token received from the client and retrieves local user details.
-   * This is the recommended backend login flow for Firebase Auth.
-   * @param idToken The Firebase ID Token received from the client.
-   * @returns An object containing the Firebase ID Token and local user details.
+   * Verifies a Firebase ID token and retrieves/creates the user in the database.
+   * This is typically used after a client-side Firebase login.
+   * @param idToken The Firebase ID token.
+   * @returns The User entity from your database.
    */
-  async login(idToken: string): Promise<{ accessToken: string; user: User }> {
+  async verifyFirebaseToken(idToken: string): Promise<User> {
     try {
-      // 1. Verify the Firebase ID Token using the Admin SDK
-      // This step is redundant if FirebaseAuthGuard is used on this endpoint
-      // but serves as a safety check if this method is called independently.
-      const decodedToken = await this.firebaseAuth.verifyIdToken(idToken);
+      const decodedToken = await admin.auth().verifyIdToken(idToken);
       const firebaseUid = decodedToken.uid;
+      const firebaseEmail = decodedToken.email || null;
+      const firebaseDisplayName = decodedToken.name || null;
+      const firebasePhoneNumber = decodedToken.phone_number || null;
+      const firebaseRole = (decodedToken.role as UserRole) || UserRole.CONSUMER; // Default to consumer
 
-      // 2. Retrieve local user record using firebaseUid
-      const localUser = await this.usersRepository.findOne({ where: { firebaseUid: firebaseUid } });
+      let user = await this.findUserByFirebaseUid(firebaseUid);
 
-      if (!localUser) {
-        throw new NotFoundException('User record not found in local database. Please register.');
+      if (!user) {
+        // User doesn't exist in our DB, create them
+        user = this.userRepository.create({
+          firebaseUid,
+          email: firebaseEmail,
+          displayName: firebaseDisplayName,
+          phoneNumber: firebasePhoneNumber,
+          role: firebaseRole as UserRole, // Cast to UserRole
+          isActive: true,
+        });
+        await this.userRepository.save(user);
+        console.log(`New user created in DB for Firebase UID: ${firebaseUid}`);
+      } else {
+        // Optionally update user data based on Firebase if needed (e.g., email, phone number)
+        // For simplicity, we'll just return the existing user.
+        console.log(`Existing user logged in from DB for Firebase UID: ${firebaseUid}`);
       }
 
-      // Return the original ID Token as the accessToken and the local user object
-      return { accessToken: idToken, user: localUser };
-
+      return user;
     } catch (error) {
-      // Handle Firebase specific errors during token verification
-      if (error.code) {
-        switch (error.code) {
-          case 'auth/id-token-expired':
-          case 'auth/argument-error':
-          case 'auth/invalid-credential':
-            throw new UnauthorizedException('Invalid or expired authentication token.');
-          default:
-            console.error('Firebase Auth Token Verification Error:', error.code, error.message);
-            throw new InternalServerErrorException('Authentication failed due to an unexpected error.');
-        }
-      }
-      console.error('Error during login (token verification):', error);
-      throw new InternalServerErrorException('Could not log in.');
+      console.error('Firebase ID token verification failed:', error);
+      throw new UnauthorizedException('Invalid or expired authentication token.');
     }
   }
 
-
-  async getUserByFirebaseUid(firebaseUid: string): Promise<User | null> {
-    return this.usersRepository.findOne({ where: { firebaseUid } });
+  /**
+   * Finds a user by their Firebase UID.
+   * @param firebaseUid The Firebase UID of the user.
+   * @returns The User entity or null if not found.
+   */
+  async findUserByFirebaseUid(firebaseUid: string): Promise<User | null> {
+    return this.userRepository.findOne({ where: { firebaseUid } });
   }
 
-  async updateUserProfile(userId: string, updateData: UpdateProfileDto): Promise<User> {
-    const user = await this.usersRepository.findOne({ where: { id: userId } });
-
-    if (!user) {
-      throw new NotFoundException(`User with ID ${userId} not found.`);
-    }
-
-    Object.assign(user, updateData);
-
-    try {
-      return await this.usersRepository.save(user);
-    } catch (error) {
-      console.error('Error updating user profile:', error);
-      throw new InternalServerErrorException('Could not update user profile.');
-    }
+  /**
+   * Finds a user by their ID.
+   * @param id The ID of the user.
+   * @returns The User entity or null if not found.
+   */
+  async findUserById(id: string): Promise<User | null> {
+    return this.userRepository.findOne({ where: { id } });
   }
 
+  /**
+   * Finds users by role.
+   * @param role The role to filter by.
+   * @returns An array of User entities.
+   */
+  async findUsersByRole(role: UserRole): Promise<User[]> {
+    return this.userRepository.find({ where: { role } });
+  }
 }

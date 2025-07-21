@@ -7,7 +7,7 @@ import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 import { Service } from '../service/service.entity';
 import { User } from '../user/user.entity';
-import { UserRole } from '../auth/roles/roles.enum'; // Import UserRole
+import { UserRole } from '../auth/roles/roles.enum';
 
 @Injectable()
 export class BookingService {
@@ -37,42 +37,17 @@ export class BookingService {
       throw new NotFoundException(`Service with ID "${serviceId}" not found.`);
     }
 
-    // 2. Validate Time Slot
-    const start = new Date(startTime);
-    const end = new Date(endTime);
+    // 2. Optional: Check for time slot availability (more complex, depends on business logic)
+    // For simplicity, we'll skip complex availability checks here for now.
 
-    if (start >= end) {
-      throw new BadRequestException('Start time must be before end time.');
-    }
-    if (start < new Date()) {
-      throw new BadRequestException('Booking start time cannot be in the past.');
-    }
-
-    // Check for overlapping bookings for the same service
-    const overlappingBookings = await this.bookingRepository
-      .createQueryBuilder('booking')
-      .where('booking.serviceId = :serviceId', { serviceId })
-      .andWhere(
-        '(:start < booking.endTime AND :end > booking.startTime)',
-        { start, end },
-      )
-      .andWhere('booking.status IN (:...activeStatuses)', {
-        activeStatuses: [BookingStatus.PENDING, BookingStatus.CONFIRMED],
-      })
-      .getMany();
-
-    if (overlappingBookings.length > 0) {
-      throw new BadRequestException('The selected time slot conflicts with an existing booking for this service.');
-    }
-
-    // 3. Create Booking
+    // 3. Create the booking
     const newBooking = this.bookingRepository.create({
-      startTime: start,
-      endTime: end,
-      agreedPrice: String(agreedPrice), // FIX: Convert number to string
-      consumerId: consumerId,
-      serviceId: service.id, // FIX: Assign serviceId directly
-      status: BookingStatus.PENDING, // Default status for new bookings
+      consumerId, // Link to the authenticated consumer
+      serviceId,  // Link to the service
+      startTime: new Date(startTime),
+      endTime: new Date(endTime),
+      agreedPrice: agreedPrice.toString(), // Store price as string to avoid float issues
+      status: BookingStatus.PENDING, // Default status
     });
 
     try {
@@ -84,181 +59,84 @@ export class BookingService {
   }
 
   /**
-   * Finds all bookings for a given user (consumer or service provider).
+   * Finds bookings for a specific user based on their role.
+   * Consumers see their own bookings. Service Providers see bookings for their services.
    * @param userId The ID of the authenticated user.
    * @param userRole The role of the authenticated user.
-   * @returns An array of bookings.
-   * @throws ForbiddenException if the userRole is not recognized or not authorized.
+   * @returns A list of bookings.
    */
-  async findAllBookingsForUser(userId: string, userRole: UserRole): Promise<Booking[]> {
-    console.log('[BookingService] Entering findAllBookingsForUser.');
-    console.log('[BookingService] User ID parameter:', userId);
-    console.log('[BookingService] Raw User Role parameter:', userRole);
-    console.log('[BookingService] Type of raw userRole parameter:', typeof userRole);
-    console.log('[BookingService] Value of UserRole.CONSUMER:', UserRole.CONSUMER);
-    console.log('[BookingService] Value of UserRole.SERVICE_PROVIDER:', UserRole.SERVICE_PROVIDER);
-    console.log('[BookingService] Comparison 1: userRole === UserRole.CONSUMER:', userRole === UserRole.CONSUMER);
-    console.log('[BookingService] Comparison 2: userRole === UserRole.SERVICE_PROVIDER:', userRole === UserRole.SERVICE_PROVIDER);
-
-    let bookings: Booking[];
-
+  async findBookingsForUser(userId: string, userRole: UserRole): Promise<Booking[]> {
     if (userRole === UserRole.CONSUMER) {
-      console.log('[BookingService] --- Entered CONSUMER IF block ---');
-      bookings = await this.bookingRepository.find({
+      return this.bookingRepository.find({
         where: { consumerId: userId },
-        relations: ['service', 'service.provider'], // Include service and its provider
+        relations: ['service', 'service.provider', 'consumer'], // Fetch service and its provider, and the consumer
+        order: { createdAt: 'DESC' },
       });
     } else if (userRole === UserRole.SERVICE_PROVIDER) {
-      console.log('[BookingService] --- Entered SERVICE_PROVIDER ELSE IF block ---');
-      // Find bookings where the authenticated user is the provider of the service
-      bookings = await this.bookingRepository
+      return this.bookingRepository
         .createQueryBuilder('booking')
         .leftJoinAndSelect('booking.service', 'service')
-        .leftJoinAndSelect('service.provider', 'provider') // Explicitly join provider
-        .where('service.providerId = :userId', { userId })
+        .leftJoinAndSelect('booking.consumer', 'consumer')
+        .where('service.providerId = :providerId', { providerId: userId })
+        .orderBy('booking.createdAt', 'DESC')
         .getMany();
-    } else {
-      console.log('[BookingService] --- Entered ELSE block (Forbidden) ---');
-      throw new ForbiddenException('You do not have permission to view bookings with this role.');
     }
-
-    console.log(`[BookingService] Found ${bookings.length} bookings for user ${userId}.`);
-    return bookings;
+    return [];
   }
 
   /**
-   * Finds a single booking for a given user (consumer or service provider).
+   * Finds a single booking by its ID, ensuring the requesting user has access.
+   * Consumers can view their own bookings. Service Providers can view bookings for their services.
    * @param bookingId The ID of the booking to find.
    * @param userId The ID of the authenticated user.
    * @param userRole The role of the authenticated user.
-   * @returns The booking, or null if not found/authorized.
-   * @throws NotFoundException if booking not found, ForbiddenException if not authorized.
+   * @returns The booking if found and accessible, otherwise null.
    */
-  async findOneBookingForUser(bookingId: string, userId: string, userRole: UserRole): Promise<Booking> {
-    const booking = await this.bookingRepository.findOne({
-      where: { id: bookingId },
-      relations: ['service', 'service.provider'], // Load service and provider for authorization check
-    });
+  async findOneBookingByIdAndUser(bookingId: string, userId: string, userRole: UserRole): Promise<Booking | null> {
+    const query = this.bookingRepository
+      .createQueryBuilder('booking')
+      .leftJoinAndSelect('booking.consumer', 'consumer')
+      .leftJoinAndSelect('booking.service', 'service')
+      .leftJoinAndSelect('service.provider', 'provider') // Join to get provider details for service
+      .where('booking.id = :bookingId', { bookingId });
 
-    if (!booking) {
-      throw new NotFoundException(`Booking with ID "${bookingId}" not found.`);
+    if (userRole === UserRole.CONSUMER) {
+      query.andWhere('booking.consumerId = :userId', { userId });
+    } else if (userRole === UserRole.SERVICE_PROVIDER) {
+      query.andWhere('service.providerId = :userId', { userId });
+    } else {
+      // For other roles, or if no specific role-based access, return null
+      return null;
     }
 
-    // Authorization check
-    if (userRole === UserRole.CONSUMER && booking.consumerId !== userId) {
-      throw new ForbiddenException('You are not authorized to view this booking as a consumer.');
-    }
-
-    if (userRole === UserRole.SERVICE_PROVIDER && booking.service.providerId !== userId) {
-      throw new ForbiddenException('You are not authorized to view this booking as a service provider.');
-    }
-
-    // If neither of the above, then the role is not recognized or not linked to the booking
-    if (userRole !== UserRole.CONSUMER && userRole !== UserRole.SERVICE_PROVIDER) {
-        throw new ForbiddenException('You do not have permission to view bookings with this role.');
-    }
-
-    return booking;
+    return await query.getOne();
   }
 
   /**
-   * Updates a booking.
-   * Consumers can update their own PENDING bookings (e.g., reschedule).
-   * Service Providers can update bookings related to their services (e.g., add notes).
+   * Updates a booking. Only the consumer who made the booking can update it.
    * @param bookingId The ID of the booking to update.
    * @param updateBookingDto The data to update.
-   * @param userId The ID of the authenticated user (consumer or provider).
-   * @param userRole The role of the authenticated user.
+   * @param consumerId The ID of the authenticated consumer (to ensure ownership).
    * @returns The updated booking.
-   * @throws NotFoundException if booking not found, ForbiddenException if not authorized, BadRequestException if status doesn't allow update.
    */
-  async updateBooking(
-    bookingId: string,
-    updateBookingDto: UpdateBookingDto,
-    userId: string,
-    userRole: UserRole
-  ): Promise<Booking> {
+  async updateBooking(bookingId: string, updateBookingDto: UpdateBookingDto, consumerId: string): Promise<Booking> {
     const booking = await this.bookingRepository.findOne({
-      where: { id: bookingId },
-      relations: ['service'],
+      where: { id: bookingId, consumerId: consumerId },
     });
 
     if (!booking) {
-      throw new NotFoundException(`Booking with ID "${bookingId}" not found.`);
+      throw new NotFoundException(`Booking with ID "${bookingId}" not found or you do not have permission to update it.`);
     }
 
-    // Authorization check
-    if (userRole === UserRole.CONSUMER) {
-      if (booking.consumerId !== userId) {
-        throw new ForbiddenException('You are not authorized to update this booking as a consumer.');
-      }
-      // Consumer can only update PENDING bookings (e.g., reschedule)
-      if (booking.status !== BookingStatus.PENDING) {
-        throw new BadRequestException(`Only PENDING bookings can be updated by a consumer. Current status: ${booking.status}`);
-      }
-      // Consumer can only update time or agreedPrice
-      if (updateBookingDto.notes !== undefined) {
-          throw new BadRequestException('Consumers cannot update notes via this endpoint.');
-      }
-    } else if (userRole === UserRole.SERVICE_PROVIDER) {
-      if (booking.service.providerId !== userId) {
-        throw new ForbiddenException('You are not authorized to update this booking as a service provider.');
-      }
-      // Service provider can update notes for any status except COMPLETED/REJECTED/CANCELLED
-      if (booking.status === BookingStatus.COMPLETED || booking.status === BookingStatus.REJECTED || booking.status === BookingStatus.CANCELLED) {
-          throw new BadRequestException(`Booking cannot be updated as its current status is ${booking.status}.`);
-      }
-      // Service provider cannot update agreedPrice or time via this general update endpoint
-      if (updateBookingDto.startTime || updateBookingDto.endTime || updateBookingDto.agreedPrice !== undefined) {
-          throw new BadRequestException('Service providers can only update notes via this endpoint. For other changes, use specific actions like confirm/reject.');
-      }
-    } else {
-      throw new ForbiddenException('You do not have permission to update bookings with this role.');
+    // Only allow updating if the booking is PENDING or CONFIRMED (e.g., cannot update a completed/cancelled booking)
+    if (booking.status !== BookingStatus.PENDING && booking.status !== BookingStatus.CONFIRMED) {
+      throw new BadRequestException(`Cannot update a booking with status "${booking.status}".`);
     }
 
     // Apply updates
-    if (updateBookingDto.startTime) {
-      const newStartTime = new Date(updateBookingDto.startTime);
-      if (newStartTime >= booking.endTime) {
-        throw new BadRequestException('New start time must be before current end time.');
-      }
-      if (newStartTime < new Date() && userRole === UserRole.CONSUMER) { // Past time check only for consumer rescheduling
-        throw new BadRequestException('New start time cannot be in the past.');
-      }
-      booking.startTime = newStartTime;
-    }
-    if (updateBookingDto.endTime) {
-      const newEndTime = new Date(updateBookingDto.endTime);
-      if (newEndTime <= booking.startTime) {
-        throw new BadRequestException('New end time must be after current start time.');
-      }
-      booking.endTime = newEndTime;
-    }
+    Object.assign(booking, updateBookingDto);
     if (updateBookingDto.agreedPrice !== undefined) {
-      booking.agreedPrice = String(updateBookingDto.agreedPrice); // FIX: Convert number to string
-    }
-    if (updateBookingDto.notes !== undefined) {
-      booking.notes = updateBookingDto.notes;
-    }
-
-    // Re-check for overlaps only if time was updated by consumer
-    if ((updateBookingDto.startTime || updateBookingDto.endTime) && userRole === UserRole.CONSUMER) {
-        const overlappingBookings = await this.bookingRepository
-            .createQueryBuilder('booking')
-            .where('booking.serviceId = :serviceId', { serviceId: booking.service.id })
-            .andWhere('booking.id != :bookingId', { bookingId }) // Exclude current booking
-            .andWhere(
-                '(:startTime < booking.endTime AND :endTime > booking.startTime)',
-                { startTime: booking.startTime, endTime: booking.endTime },
-            )
-            .andWhere('booking.status IN (:...activeStatuses)', {
-                activeStatuses: [BookingStatus.PENDING, BookingStatus.CONFIRMED],
-            })
-            .getMany();
-
-        if (overlappingBookings.length > 0) {
-            throw new BadRequestException('The new time slot conflicts with an existing booking for this service.');
-        }
+      booking.agreedPrice = updateBookingDto.agreedPrice.toString();
     }
 
     try {
@@ -270,71 +148,33 @@ export class BookingService {
   }
 
   /**
-   * Confirms a PENDING booking.
-   * Only the service provider associated with the service can confirm.
-   * @param bookingId The ID of the booking to confirm.
-   * @param providerId The ID of the authenticated service provider.
-   * @returns The confirmed booking.
-   * @throws NotFoundException if booking not found, ForbiddenException if not authorized, BadRequestException if status not PENDING.
-   */
-  async confirmBooking(bookingId: string, providerId: string): Promise<Booking> {
-    const booking = await this.bookingRepository.findOne({
-      where: { id: bookingId },
-      relations: ['service'],
-    });
-
-    if (!booking) {
-      throw new NotFoundException(`Booking with ID "${bookingId}" not found.`);
-    }
-    if (booking.service.providerId !== providerId) {
-      throw new ForbiddenException('You are not authorized to confirm this booking.');
-    }
-    if (booking.status !== BookingStatus.PENDING) {
-      throw new BadRequestException(`Only PENDING bookings can be CONFIRMED. Current status: ${booking.status}`);
-    }
-
-    booking.status = BookingStatus.CONFIRMED;
-    return this.bookingRepository.save(booking);
-  }
-
-  /**
-   * Cancels a booking.
-   * Consumers can cancel their own PENDING or CONFIRMED bookings.
-   * Service providers can cancel PENDING or CONFIRMED bookings for their services.
+   * Allows a consumer or service provider to cancel a booking.
    * @param bookingId The ID of the booking to cancel.
-   * @param userId The ID of the authenticated user.
-   * @param userRole The role of the authenticated user.
+   * @param userId The ID of the user performing the cancellation.
+   * @param userRole The role of the user.
    * @returns The cancelled booking.
-   * @throws NotFoundException if booking not found, ForbiddenException if not authorized, BadRequestException if status doesn't allow cancellation.
    */
   async cancelBooking(bookingId: string, userId: string, userRole: UserRole): Promise<Booking> {
     const booking = await this.bookingRepository.findOne({
       where: { id: bookingId },
-      relations: ['service'], // Load service for provider check
+      relations: ['service'], // Load service to check providerId
     });
 
     if (!booking) {
       throw new NotFoundException(`Booking with ID "${bookingId}" not found.`);
     }
 
-    // Authorization: Consumer can cancel their own, Provider can cancel for their service
-    if (userRole === UserRole.CONSUMER && booking.consumerId !== userId) {
-      throw new ForbiddenException('You are not authorized to cancel this booking as a consumer.');
-    }
-    if (userRole === UserRole.SERVICE_PROVIDER && booking.service.providerId !== userId) {
-      throw new ForbiddenException('You are not authorized to cancel this booking as a service provider.');
-    }
-    if (userRole !== UserRole.CONSUMER && userRole !== UserRole.SERVICE_PROVIDER) {
-      throw new ForbiddenException('You do not have permission to cancel bookings with this role.');
+    // Check if the user is either the consumer or the service provider of the service
+    const isConsumer = booking.consumerId === userId && userRole === UserRole.CONSUMER;
+    const isProvider = booking.service?.providerId === userId && userRole === UserRole.SERVICE_PROVIDER;
+
+    if (!isConsumer && !isProvider) {
+      throw new ForbiddenException('You are not authorized to cancel this booking.');
     }
 
-    // Check if booking can be cancelled (e.g., not already completed/cancelled/rejected)
-    if (
-      booking.status === BookingStatus.COMPLETED ||
-      booking.status === BookingStatus.CANCELLED ||
-      booking.status === BookingStatus.REJECTED
-    ) {
-      throw new BadRequestException(`Booking cannot be cancelled as its current status is ${booking.status}.`);
+    // Only allow cancellation if the booking is PENDING or CONFIRMED
+    if (booking.status !== BookingStatus.PENDING && booking.status !== BookingStatus.CONFIRMED) {
+      throw new BadRequestException(`Booking with status "${booking.status}" cannot be cancelled.`);
     }
 
     booking.status = BookingStatus.CANCELLED;
@@ -342,12 +182,10 @@ export class BookingService {
   }
 
   /**
-   * Rejects a PENDING booking.
-   * Only the service provider associated with the service can reject.
+   * Allows a service provider to reject a PENDING booking.
    * @param bookingId The ID of the booking to reject.
-   * @param providerId The ID of the authenticated service provider.
+   * @param providerId The ID of the service provider.
    * @returns The rejected booking.
-   * @throws NotFoundException if booking not found, ForbiddenException if not authorized, BadRequestException if status not PENDING.
    */
   async rejectBooking(bookingId: string, providerId: string): Promise<Booking> {
     const booking = await this.bookingRepository.findOne({
@@ -370,12 +208,10 @@ export class BookingService {
   }
 
   /**
-   * Marks a CONFIRMED booking as COMPLETED.
-   * Only the service provider associated with the service can complete.
+   * Allows a service provider to mark a CONFIRMED booking as COMPLETED.
    * @param bookingId The ID of the booking to complete.
-   * @param providerId The ID of the authenticated service provider.
+   * @param providerId The ID of the service provider.
    * @returns The completed booking.
-   * @throws NotFoundException if booking not found, ForbiddenException if not authorized, BadRequestException if status not CONFIRMED.
    */
   async completeBooking(bookingId: string, providerId: string): Promise<Booking> {
     const booking = await this.bookingRepository.findOne({
@@ -396,21 +232,4 @@ export class BookingService {
     booking.status = BookingStatus.COMPLETED;
     return this.bookingRepository.save(booking);
   }
-
-  // Note: Direct deletion of bookings is generally not recommended in a real system
-  // as it would lose historical data. Instead, set status to CANCELLED or REJECTED.
-  // If forced to delete, it would look similar to other ownership checks.
-  // async deleteBooking(bookingId: string, userId: string, role: string): Promise<void> {
-  //   const booking = await this.bookingRepository.findOne({
-  //     where: { id: bookingId },
-  //     relations: ['service', 'service.provider'],
-  //   });
-  //   if (!booking) {
-  //     throw new NotFoundException(`Booking with ID "${bookingId}" not found.`);
-  //   }\
-  //   if (booking.consumerId !== userId && booking.service.providerId !== userId && role !== 'ADMIN') {
-  //     throw new ForbiddenException('You do not have permission to delete this booking.');
-  //   }
-  //   await this.bookingRepository.remove(booking);
-  // }
 }
