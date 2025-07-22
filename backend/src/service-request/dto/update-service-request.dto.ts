@@ -2,7 +2,7 @@
 import { PartialType } from '@nestjs/mapped-types';
 import { CreateServiceRequestDto } from './create-service-request.dto';
 import { IsOptional, IsEnum, IsNumber, IsString, Min } from 'class-validator';
-import { ServiceRequestStatus, PaymentStatus } from '../service-request.entity';
+import { ServiceRequestStatus } from '../service-request.entity'; // Removed PaymentStatus
 
 export class UpdateServiceRequestDto extends PartialType(CreateServiceRequestDto) {
   @IsOptional()
@@ -14,11 +14,12 @@ export class UpdateServiceRequestDto extends PartialType(CreateServiceRequestDto
   @Min(0)
   totalCost?: number;
 
-  @IsOptional()
-  @IsEnum(PaymentStatus)
-  paymentStatus?: PaymentStatus;
+  // Removed paymentStatus and paymentMethod as per migration
+  // @IsOptional()
+  // @IsEnum(PaymentStatus)
+  // paymentStatus?: PaymentStatus;
 
-  @IsOptional()
-  @IsString()
-  paymentMethod?: string;
+  // @IsOptional()
+  // @IsString()
+  // paymentMethod?: string;
 }

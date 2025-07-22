@@ -7,10 +7,11 @@ import { RatingReviewController } from './rating-review.controller';
 import { ServiceRequest } from '../service-request/service-request.entity';
 import { User } from '../user/user.entity';
 import { AuthModule } from '../auth/auth.module';
+import { ServiceProvider } from '../service-provider/service-provider.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([RatingReview, ServiceRequest, User]),
+    TypeOrmModule.forFeature([RatingReview, ServiceRequest, User, ServiceProvider]),
     AuthModule,
   ],
   controllers: [RatingReviewController],

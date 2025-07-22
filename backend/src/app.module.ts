@@ -5,6 +5,7 @@ import { ConfigModule } from '@nestjs/config'; // Import ConfigModule
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { User } from './user/user.entity'; // Import the user entity
+import { ServiceProvider } from './service-provider/service-provider.entity';
 import { Service } from './service/service.entity';
 import { AuthModule } from './auth/auth.module';
 import { FirebaseService } from './config/firebase/firebase.service';
@@ -37,13 +38,14 @@ import { RatingReviewModule } from './rating-review/rating-review.module';
       password: process.env.DATABASE_PASSWORD,
       database: process.env.DATABASE_NAME,
       entities: [
-        User, 
-        Service, 
-        Booking, 
-        Locality, 
-        ServiceCategory, 
-        ServiceType, 
-        ServiceRequest, 
+        User,
+        ServiceProvider, // <-- Comma added here
+        Service,
+        Booking,
+        Locality,
+        ServiceCategory,
+        ServiceType,
+        ServiceRequest,
         RatingReview
       ],
       synchronize: false, // Set to false in production! Use migrations.
@@ -65,4 +67,3 @@ import { RatingReviewModule } from './rating-review/rating-review.module';
   providers: [AppService, FirebaseService],
 })
 export class AppModule {}
-

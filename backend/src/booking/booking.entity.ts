@@ -1,7 +1,8 @@
-// src/booking/booking.entity.ts
+// backend/src/booking/booking.entity.ts
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 import { User } from '../user/user.entity';
 import { Service } from '../service/service.entity';
+import { ServiceProvider } from '../service-provider/service-provider.entity'; // ADD this import
 
 export enum BookingStatus {
   PENDING = 'PENDING',
@@ -35,7 +36,8 @@ export class Booking {
   @Column({ name: 'consumer_id' })
   consumerId: string;
 
-  @ManyToOne(() => User, user => user.bookingsAsConsumer)
+  // CHANGE this line to use consumerBookings
+  @ManyToOne(() => User, user => user.consumerBookings)
   @JoinColumn({ name: 'consumer_id' })
   consumer: User;
 
@@ -46,6 +48,14 @@ export class Booking {
   @ManyToOne(() => Service, service => service.bookings)
   @JoinColumn({ name: 'service_id' })
   service: Service;
+
+  // Add ServiceProvider relation
+  @Column({ name: 'service_provider_id', nullable: true })
+  serviceProviderId: string;
+
+  @ManyToOne(() => ServiceProvider, serviceProvider => serviceProvider.providerBookings)
+  @JoinColumn({ name: 'service_provider_id' })
+  serviceProvider: ServiceProvider;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

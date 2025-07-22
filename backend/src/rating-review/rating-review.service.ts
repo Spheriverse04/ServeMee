@@ -1,10 +1,11 @@
 // backend/src/rating-review/rating-review.service.ts
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException, InternalServerErrorException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RatingReview } from './rating-review.entity';
 import { ServiceRequest, ServiceRequestStatus } from '../service-request/service-request.entity';
 import { User } from '../user/user.entity';
+import { ServiceProvider } from '../service-provider/service-provider.entity';
 import { CreateRatingReviewDto } from './dto/create-rating-review.dto';
 import { UpdateRatingReviewDto } from './dto/update-rating-review.dto';
 
@@ -17,10 +18,11 @@ export class RatingReviewService {
     private serviceRequestRepository: Repository<ServiceRequest>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    @InjectRepository(ServiceProvider)
+    private serviceProviderRepository: Repository<ServiceProvider>,
   ) {}
 
   async create(createRatingReviewDto: CreateRatingReviewDto, consumerId: string): Promise<RatingReview> {
-    // Verify the service request exists and is completed
     const serviceRequest = await this.serviceRequestRepository.findOne({
       where: { id: createRatingReviewDto.serviceRequestId },
       relations: ['consumer', 'serviceProvider'],
@@ -30,106 +32,124 @@ export class RatingReviewService {
       throw new NotFoundException(`Service request with ID "${createRatingReviewDto.serviceRequestId}" not found.`);
     }
 
-    // Verify the consumer is the one who made the request
-    if (serviceRequest.consumerId !== consumerId) {
-      throw new ForbiddenException('You can only review services you have requested.');
+    if (serviceRequest.consumer.id !== consumerId) {
+      throw new ForbiddenException('You are not authorized to review this service request.');
     }
 
-    // Verify the service request is completed
     if (serviceRequest.status !== ServiceRequestStatus.COMPLETED) {
-      throw new BadRequestException('You can only review completed services.');
+      throw new BadRequestException('Only completed service requests can be reviewed.');
     }
 
-    // Check if a review already exists for this service request
     const existingReview = await this.ratingReviewRepository.findOne({
-      where: { serviceRequestId: createRatingReviewDto.serviceRequestId },
+      where: { serviceRequestId: serviceRequest.id },
     });
 
     if (existingReview) {
-      throw new BadRequestException('A review already exists for this service request.');
+      throw new ConflictException('A review for this service request already exists.');
     }
 
-    // Create the review
+    if (!serviceRequest.serviceProviderId) {
+        throw new InternalServerErrorException('Service provider not associated with this service request.');
+    }
+
     const review = this.ratingReviewRepository.create({
-      ...createRatingReviewDto,
-      consumerId,
+      serviceRequest: serviceRequest,
+      serviceRequestId: serviceRequest.id,
+      consumer: serviceRequest.consumer,
+      consumerId: consumerId,
       serviceProviderId: serviceRequest.serviceProviderId,
+      rating: createRatingReviewDto.rating,
+      reviewText: createRatingReviewDto.reviewText,
     });
 
     const savedReview = await this.ratingReviewRepository.save(review);
 
-    // Update service provider's average rating
     await this.updateProviderRating(serviceRequest.serviceProviderId);
 
     return savedReview;
   }
 
-  async findByServiceProvider(serviceProviderId: string): Promise<RatingReview[]> {
-    return this.ratingReviewRepository.find({
-      where: { serviceProviderId, isVerified: true },
-      relations: ['consumer', 'serviceRequest'],
-      order: { createdAt: 'DESC' },
-    });
-  }
-
-  async findByConsumer(consumerId: string): Promise<RatingReview[]> {
-    return this.ratingReviewRepository.find({
-      where: { consumerId },
-      relations: ['serviceProvider', 'serviceRequest'],
-      order: { createdAt: 'DESC' },
-    });
-  }
-
-  async findOne(id: string): Promise<RatingReview> {
-    const review = await this.ratingReviewRepository.findOne({
-      where: { id },
-      relations: ['consumer', 'serviceProvider', 'serviceRequest'],
-    });
-
-    if (!review) {
-      throw new NotFoundException(`Rating review with ID "${id}" not found.`);
-    }
-
-    return review;
-  }
-
   async update(id: string, updateRatingReviewDto: UpdateRatingReviewDto, consumerId: string): Promise<RatingReview> {
     const review = await this.ratingReviewRepository.findOne({
-      where: { id, consumerId },
+      where: { id },
+      relations: ['consumer', 'serviceRequest'],
     });
 
     if (!review) {
-      throw new NotFoundException(`Rating review with ID "${id}" not found or you don't have permission to update it.`);
+      throw new NotFoundException(`Review with ID "${id}" not found.`);
+    }
+
+    if (review.consumer.id !== consumerId) {
+      throw new ForbiddenException('You are not authorized to update this review.');
     }
 
     Object.assign(review, updateRatingReviewDto);
     const updatedReview = await this.ratingReviewRepository.save(review);
 
-    // Update service provider's average rating if rating changed
-    if (updateRatingReviewDto.rating !== undefined) {
-      await this.updateProviderRating(review.serviceProviderId);
+    if (updateRatingReviewDto.rating !== undefined && updatedReview.serviceProviderId) {
+        await this.updateProviderRating(updatedReview.serviceProviderId);
     }
 
     return updatedReview;
   }
 
+  async findOne(id: string): Promise<RatingReview> {
+    const review = await this.ratingReviewRepository.findOne({ where: { id } });
+    if (!review) {
+      throw new NotFoundException(`Review with ID "${id}" not found.`);
+    }
+    return review;
+  }
+
+  async findAll(): Promise<RatingReview[]> {
+    return this.ratingReviewRepository.find();
+  }
+
   async remove(id: string, consumerId: string): Promise<void> {
-    const review = await this.ratingReviewRepository.findOne({
-      where: { id, consumerId },
-    });
+    const review = await this.ratingReviewRepository.findOne({ where: { id } });
 
     if (!review) {
-      throw new NotFoundException(`Rating review with ID "${id}" not found or you don't have permission to delete it.`);
+      throw new NotFoundException(`Review with ID "${id}" not found.`);
+    }
+
+    if (review.consumerId !== consumerId) {
+      throw new ForbiddenException('You are not authorized to delete this review.');
     }
 
     const serviceProviderId = review.serviceProviderId;
+
     await this.ratingReviewRepository.remove(review);
 
-    // Update service provider's average rating
-    await this.updateProviderRating(serviceProviderId);
+    if (serviceProviderId) {
+        await this.updateProviderRating(serviceProviderId);
+    }
   }
 
-  private async updateProviderRating(serviceProviderId: string): Promise<void> {
+  /**
+   * Finds reviews given by a specific consumer.
+   * @param consumerId The ID of the consumer.
+   * @returns An array of RatingReview entities.
+   */
+  // FIX: Renamed method
+  async findReviewsByConsumer(consumerId: string): Promise<RatingReview[]> {
+    return this.ratingReviewRepository.find({ where: { consumerId } });
+  }
+
+  /**
+   * Finds reviews received by a specific service provider.
+   * @param serviceProviderId The ID of the service provider.
+   * @returns An array of RatingReview entities.
+   */
+  // FIX: Renamed method
+  async findReviewsByProvider(serviceProviderId: string): Promise<RatingReview[]> {
+    return this.ratingReviewRepository.find({ where: { serviceProviderId } });
+  }
+
+  /**
+   * Updates the average rating and total ratings for a service provider.
+   * @param serviceProviderId The ID of the service provider.
+   */
+  async updateProviderRating(serviceProviderId: string): Promise<void> {
     const result = await this.ratingReviewRepository
       .createQueryBuilder('review')
       .select('AVG(review.rating)', 'averageRating')
@@ -141,8 +161,8 @@ export class RatingReviewService {
     const averageRating = parseFloat(result.averageRating) || 0;
     const totalRatings = parseInt(result.totalRatings) || 0;
 
-    await this.userRepository.update(serviceProviderId, {
-      averageRating: Math.round(averageRating * 10) / 10, // Round to 1 decimal place
+    await this.serviceProviderRepository.update(serviceProviderId, {
+      averageRating: Math.round(averageRating * 10) / 10,
       totalRatings,
     });
   }
@@ -158,13 +178,15 @@ export class RatingReviewService {
     });
 
     const totalRatings = reviews.length;
-    const averageRating = totalRatings > 0 
-      ? reviews.reduce((sum, review) => sum + review.rating, 0) / totalRatings 
+    const averageRating = totalRatings > 0
+      ? reviews.reduce((sum, review) => sum + review.rating, 0) / totalRatings
       : 0;
 
-    const ratingDistribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    const ratingDistribution: { [key: number]: number } = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
     reviews.forEach(review => {
-      ratingDistribution[review.rating]++;
+      if (review.rating >= 1 && review.rating <= 5) {
+        ratingDistribution[review.rating]++;
+      }
     });
 
     return {

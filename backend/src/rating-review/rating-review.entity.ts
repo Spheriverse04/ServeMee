@@ -2,6 +2,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, Index, Check } from 'typeorm';
 import { ServiceRequest } from '../service-request/service-request.entity';
 import { User } from '../user/user.entity';
+import { ServiceProvider } from '../service-provider/service-provider.entity'; // ADD this import
 
 @Entity('ratings_reviews')
 @Check(`rating >= 1 AND rating <= 5`)
@@ -12,6 +13,7 @@ export class RatingReview {
   @Column({ name: 'service_request_id', type: 'uuid', unique: true, nullable: false })
   serviceRequestId: string;
 
+  // Correct this line: Ensure ServiceRequest has a 'reviews' property (see next section)
   @ManyToOne(() => ServiceRequest, request => request.reviews, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'service_request_id' })
   serviceRequest: ServiceRequest;
@@ -19,16 +21,18 @@ export class RatingReview {
   @Column({ name: 'consumer_id', type: 'uuid', nullable: false })
   consumerId: string;
 
-  @ManyToOne(() => User, user => user.reviewsGiven, { onDelete: 'CASCADE' })
+  // Correct this line: Use 'givenReviews' as defined in user.entity.ts
+  @ManyToOne(() => User, user => user.givenReviews, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'consumer_id' })
   consumer: User;
 
   @Column({ name: 'service_provider_id', type: 'uuid', nullable: false })
   serviceProviderId: string;
 
-  @ManyToOne(() => User, user => user.reviewsReceived, { onDelete: 'CASCADE' })
+  // Correct this line: Use ServiceProvider entity and its 'receivedReviews' property
+  @ManyToOne(() => ServiceProvider, serviceProvider => serviceProvider.receivedReviews, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'service_provider_id' })
-  serviceProvider: User;
+  serviceProvider: ServiceProvider;
 
   @Column({ type: 'integer', nullable: false })
   rating: number; // 1-5 stars
@@ -42,10 +46,9 @@ export class RatingReview {
   @Column({ name: 'helpful_count', type: 'integer', default: 0, nullable: false })
   helpfulCount: number; // For future "helpful" voting feature
 
-  @Index()
-  @CreateDateColumn({ name: 'created_at', type: 'timestamp with time zone' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamp with time zone', default: () => 'CURRENT_TIMESTAMP' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamp with time zone' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamp with time zone', default: () => 'CURRENT_TIMESTAMP' })
   updatedAt: Date;
 }

@@ -5,10 +5,8 @@ import { Repository } from 'typeorm';
 import { Service } from './service.entity';
 import { CreateServiceDto } from './dto/create-service.dto';
 import { UpdateServiceDto } from './dto/update-service.dto';
-import { User } from '../user/user.entity';
 import * as admin from 'firebase-admin';
-// import { File } from 'multer'; // REMOVE THIS LINE
-// No direct import needed for Multer.File if @types/multer augments Express global namespace
+import { Express } from 'express'; // FIX 1: Import Express for Express.Multer.File type
 
 @Injectable()
 export class ServiceService {
@@ -17,7 +15,8 @@ export class ServiceService {
     private servicesRepository: Repository<Service>,
   ) {}
 
-  private async uploadImage(file: Express.Multer.File | undefined): Promise<string | null> { // Use Express.Multer.File
+  // FIX 1: Use Express.Multer.File
+  private async uploadImage(file: Express.Multer.File | undefined): Promise<string | null> {
     if (!file) {
       return null;
     }
@@ -40,7 +39,7 @@ export class ServiceService {
 
       blobStream.on('finish', async () => {
         await fileUpload.makePublic();
-        const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileUpload.name}`;
+        const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(fileUpload.name)}?alt=media`;
         resolve(publicUrl);
       });
 
@@ -51,20 +50,18 @@ export class ServiceService {
   async createService(
     createServiceDto: CreateServiceDto,
     providerId: string,
-    file?: Express.Multer.File, // Use Express.Multer.File
+    file?: Express.Multer.File, // FIX 1: Use Express.Multer.File
   ): Promise<Service> {
-    try {
-      let imageUrl: string | null = null;
-      if (file) {
-        imageUrl = await this.uploadImage(file);
-      }
+    const imageUrl = await this.uploadImage(file);
 
-      const newService = this.servicesRepository.create({
-        ...createServiceDto,
-        providerId: providerId,
-        imageUrl: imageUrl,
-      });
-      return await this.servicesRepository.save(newService);
+    const service = this.servicesRepository.create({
+      ...createServiceDto,
+      providerId: providerId,
+      imageUrl: imageUrl,
+    });
+
+    try {
+      return await this.servicesRepository.save(service);
     } catch (error) {
       console.error('Error creating service:', error);
       throw new InternalServerErrorException('Failed to create service.');
@@ -72,22 +69,30 @@ export class ServiceService {
   }
 
   async findOne(id: string): Promise<Service | null> {
-    return this.servicesRepository.findOne({ where: { id } });
+    return this.servicesRepository.findOne({
+      where: { id },
+      relations: ['serviceProvider', 'serviceType'],
+    });
   }
 
-  async findAllServices(): Promise<Service[]> {
-    return this.servicesRepository.find();
+  async findAll(): Promise<Service[]> {
+    return this.servicesRepository.find({
+      relations: ['serviceProvider', 'serviceType'],
+    });
   }
 
   async findServicesByProvider(providerId: string): Promise<Service[]> {
-    return this.servicesRepository.find({ where: { providerId } });
+    return this.servicesRepository.find({
+      where: { providerId },
+      relations: ['serviceType'],
+    });
   }
 
   async updateService(
     id: string,
     updateServiceDto: UpdateServiceDto,
     providerId: string,
-    file?: Express.Multer.File, // Use Express.Multer.File
+    file?: Express.Multer.File, // FIX 1: Use Express.Multer.File
   ): Promise<Service> {
     const service = await this.servicesRepository.findOne({ where: { id, providerId } });
 
@@ -95,15 +100,24 @@ export class ServiceService {
       throw new NotFoundException(`Service with ID ${id} not found or you don't have permission to update it.`);
     }
 
-    let newImageUrl: string | null | undefined = service.imageUrl;
+    let newImageUrl: string | null = service.imageUrl;
 
     if (file) {
       newImageUrl = await this.uploadImage(file);
-    } else if (updateServiceDto.hasOwnProperty('imageUrl') && updateServiceDto.imageUrl === null) {
-      newImageUrl = null;
+    } else if (updateServiceDto.imageUrl !== undefined) { // FIX 2: Check if imageUrl is explicitly provided and not undefined
+      newImageUrl = updateServiceDto.imageUrl; // This will now be string | null
     }
+    // If no file and updateServiceDto.imageUrl is undefined (meaning property not sent),
+    // then newImageUrl retains its initial value (service.imageUrl).
 
-    Object.assign(service, updateServiceDto);
+    // Separate imageUrl from other DTO properties to handle it explicitly.
+    // This prevents Object.assign from potentially overwriting newImageUrl with undefined from DTO.
+    const { imageUrl, ...restOfDto } = updateServiceDto;
+
+    // Apply other updates from DTO using Object.assign
+    Object.assign(service, restOfDto);
+
+    // Assign the determined imageUrl to the service entity
     service.imageUrl = newImageUrl;
 
     try {

@@ -16,7 +16,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Request } from 'express'; // Keep this import, it helps with global Express types
+import { Request } from 'express';
 import { ServiceService } from './service.service';
 import { CreateServiceDto } from './dto/create-service.dto';
 import { UpdateServiceDto } from './dto/update-service.dto';
@@ -25,6 +25,7 @@ import { RolesGuard } from '../auth/roles/roles.guard';
 import { Roles } from '../auth/roles/roles.decorator';
 import { UserRole } from '../auth/roles/roles.enum';
 import { User } from '../user/user.entity';
+import { Express } from 'express'; // Import Express for Multer.File type
 
 @Controller('services')
 @UseGuards(FirebaseAuthGuard, RolesGuard)
@@ -38,22 +39,13 @@ export class ServiceController {
   async create(
     @Body() createServiceDto: CreateServiceDto,
     @Req() req: Request & { user: User },
-    @UploadedFile() file?: Express.Multer.File, // Use Express.Multer.File
+    @UploadedFile() file?: Express.Multer.File, // Changed to Express.Multer.File
   ) {
     const providerId = req.user.id;
     const service = await this.serviceService.createService(createServiceDto, providerId, file);
     return {
       message: 'Service created successfully!',
       service,
-    };
-  }
-
-  @Get()
-  async findAll(@Req() req: Request & { user: User }) {
-    const services = await this.serviceService.findAllServices();
-    return {
-      message: 'Services fetched successfully!',
-      services,
     };
   }
 
@@ -76,7 +68,7 @@ export class ServiceController {
     @Param('id') id: string,
     @Body() updateServiceDto: UpdateServiceDto,
     @Req() req: Request & { user: User },
-    @UploadedFile() file?: Express.Multer.File, // Use Express.Multer.File
+    @UploadedFile() file?: Express.Multer.File, // Changed to Express.Multer.File
   ) {
     const providerId = req.user.id;
     const updatedService = await this.serviceService.updateService(id, updateServiceDto, providerId, file);
@@ -103,7 +95,7 @@ export class ServiceController {
     const providerId = req.user.id;
     const services = await this.serviceService.findServicesByProvider(providerId);
     return {
-      message: 'My services fetched successfully!',
+      message: 'Provider services fetched successfully!',
       services,
     };
   }

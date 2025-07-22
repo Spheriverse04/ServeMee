@@ -2,6 +2,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { ServiceCategory } from '../service-category/service-category.entity';
 import { Service } from '../service/service.entity';
+import { ServiceRequest } from '../service-request/service-request.entity'; // ADD this import
 
 export enum BaseFareType {
   HOURLY = 'hourly',
@@ -29,11 +30,11 @@ export class ServiceType {
   @Column({ type: 'text', nullable: true })
   description: string;
 
-  @Column({ 
-    name: 'base_fare_type', 
-    type: 'enum', 
-    enum: BaseFareType, 
-    nullable: false 
+  @Column({
+    name: 'base_fare_type',
+    type: 'enum',
+    enum: BaseFareType,
+    nullable: false
   })
   baseFareType: BaseFareType;
 
@@ -50,6 +51,10 @@ export class ServiceType {
   // One-to-Many relationship with Service
   @OneToMany(() => Service, service => service.serviceType)
   services: Service[];
+
+  // ADD this One-to-Many relationship for ServiceRequests
+  @OneToMany(() => ServiceRequest, serviceRequest => serviceRequest.serviceType)
+  serviceRequests: ServiceRequest[];
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamp with time zone' })
   createdAt: Date;
