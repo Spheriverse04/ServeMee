@@ -51,16 +51,6 @@ export default function ServiceTypesPage() {
     }
   };
 
-  const handleRequestService = (serviceTypeId: string) => {
-    const token = localStorage.getItem('firebaseIdToken');
-    if (!token) {
-      router.push('/auth/email-password');
-      return;
-    }
-    
-    router.push(`/request-service/${serviceTypeId}`);
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -140,7 +130,7 @@ export default function ServiceTypesPage() {
                 </div>
 
                 <button
-                  onClick={() => handleRequestService(serviceType.id)}
+                  onClick={() => router.push(`/service-types/${serviceType.id}/request`)}
                   className="group/btn w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-3 px-6 rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all duration-300 font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-1"
                 >
                   <span className="flex items-center justify-center space-x-2">

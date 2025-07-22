@@ -196,7 +196,6 @@ export default function MyServicesPage() {
               <div key={service.id} className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden flex flex-col">
                  {service.imageUrl && (
                   <div className="w-full h-48 bg-gray-200 flex items-center justify-center overflow-hidden">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={service.imageUrl}
                       alt={service.name}
