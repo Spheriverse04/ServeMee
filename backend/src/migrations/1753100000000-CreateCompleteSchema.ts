@@ -1,256 +1,454 @@
-import { MigrationInterface, QueryRunner } from "typeorm";
+import { MigrationInterface, QueryRunner, Table, TableForeignKey } from "typeorm";
 
 export class CreateCompleteSchema1753100000000 implements MigrationInterface {
     name = 'CreateCompleteSchema1753100000000'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
-        // Enable required extensions
+        // Enable required extension for UUID generation
         await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
-        await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "postgis"`);
 
-        // Create localities table
+        // Create custom enum for BaseFareType
         await queryRunner.query(`
-            CREATE TABLE IF NOT EXISTS "localities" (
-                "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-                "name" varchar(255) UNIQUE NOT NULL,
-                "polygon_geometry" geometry(POLYGON, 4326) NOT NULL,
-                "description" text,
-                "is_active" boolean DEFAULT true NOT NULL,
-                "created_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
-                "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
-            )
+            CREATE TYPE "public"."base_fare_type_enum" AS ENUM ('hourly', 'fixed', 'per_km', 'per_item', 'custom');
         `);
 
-        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_localities_geometry" ON "localities" USING GIST ("polygon_geometry")`);
+        // Create users table
+        await queryRunner.createTable(new Table({
+            name: "users",
+            columns: [
+                { name: "id", type: "uuid", isPrimary: true, default: "uuid_generate_v4()" },
+                { name: "firebase_uid", type: "varchar", length: "255", isUnique: true, isNullable: false },
+                { name: "email", type: "varchar", length: "255", isUnique: true, isNullable: false },
+                { name: "phone_number", type: "varchar", length: "20", isNullable: true },
+                { name: "display_name", type: "varchar", length: "255", isNullable: true },
+                { name: "profile_picture_url", type: "text", isNullable: true },
+                { name: "address", type: "varchar", length: "255", isNullable: true },
+                { name: "latitude", type: "numeric", precision: 10, scale: 8, isNullable: true },
+                { name: "longitude", type: "numeric", precision: 11, scale: 8, isNullable: true },
+                { name: "role", type: "enum", enum: ["consumer", "service_provider"], default: "'consumer'", isNullable: false },
+                { name: "created_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+                { name: "updated_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+                { name: "last_login", type: "timestamp with time zone", isNullable: true },
+                { name: "is_active", type: "boolean", default: true, isNullable: false },
+            ],
+        }), true);
 
         // Create service_categories table
-        await queryRunner.query(`
-            CREATE TABLE IF NOT EXISTS "service_categories" (
-                "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-                "name" varchar(255) UNIQUE NOT NULL,
-                "description" text,
-                "icon_url" text,
-                "is_active" boolean DEFAULT true NOT NULL,
-                "sort_order" integer DEFAULT 0 NOT NULL,
-                "created_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
-                "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
-            )
-        `);
+        await queryRunner.createTable(new Table({
+            name: "service_categories",
+            columns: [
+                { name: "id", type: "uuid", isPrimary: true, default: "uuid_generate_v4()" },
+                { name: "name", type: "varchar", length: "255", isUnique: true, isNullable: false },
+                { name: "description", type: "text", isNullable: true },
+                { name: "icon_url", type: "text", isNullable: true },
+                { name: "is_active", type: "boolean", default: true, isNullable: false },
+                { name: "sort_order", type: "int", default: 0, isNullable: false },
+                { name: "created_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+                { name: "updated_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+            ],
+        }), true);
 
         // Create service_types table
-        await queryRunner.query(`
-            CREATE TYPE "service_types_base_fare_type_enum" AS ENUM('hourly', 'fixed', 'per_km', 'per_item', 'custom')
-        `);
+        await queryRunner.createTable(new Table({
+            name: "service_types",
+            columns: [
+                { name: "id", type: "uuid", isPrimary: true, default: "uuid_generate_v4()" },
+                { name: "category_id", type: "uuid", isNullable: false },
+                { name: "name", type: "varchar", length: "255", isUnique: true, isNullable: false },
+                { name: "description", type: "text", isNullable: true },
+                // ADDED 'base_fare_type' column using the custom enum
+                {
+                    name: "base_fare_type",
+                    type: "enum",
+                    enum: ["hourly", "fixed", "per_km", "per_item", "custom"], // Ensure these match your BaseFareType enum
+                    isNullable: false
+                },
+                { name: "average_rating", type: "numeric", precision: 3, scale: 2, default: 0.00, isNullable: false },
+                { name: "total_ratings", type: "integer", default: 0, isNullable: false },
+                { name: "sort_order", type: "integer", default: 0, isNullable: false },
+                { name: "additional_attributes", type: "jsonb", isNullable: true },
+                { name: "is_active", type: "boolean", default: true, isNullable: false },
+                { name: "created_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+                { name: "updated_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+            ],
+        }), true);
 
-        await queryRunner.query(`
-            CREATE TABLE IF NOT EXISTS "service_types" (
-                "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-                "category_id" uuid NOT NULL,
-                "name" varchar(255) NOT NULL,
-                "description" text,
-                "base_fare_type" "service_types_base_fare_type_enum" NOT NULL,
-                "is_active" boolean DEFAULT true NOT NULL,
-                "sort_order" integer DEFAULT 0 NOT NULL,
-                "additional_attributes" jsonb,
-                "created_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
-                "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
-                CONSTRAINT "FK_service_types_category" FOREIGN KEY ("category_id") REFERENCES "service_categories"("id") ON DELETE CASCADE,
-                UNIQUE ("category_id", "name")
-            )
-        `);
+        await queryRunner.createForeignKey("service_types", new TableForeignKey({
+            columnNames: ["category_id"],
+            referencedColumnNames: ["id"],
+            onDelete: "RESTRICT",
+            onUpdate: "NO ACTION",
+            referencedTableName: "service_categories",
+        }));
 
-        // Update users table with new columns
-        await queryRunner.query(`
-            ALTER TABLE "users" 
-            ADD COLUMN IF NOT EXISTS "passport_photo_url" text,
-            ADD COLUMN IF NOT EXISTS "is_verified" boolean DEFAULT false NOT NULL,
-            ADD COLUMN IF NOT EXISTS "average_rating" decimal(2,1) DEFAULT 0.0 NOT NULL,
-            ADD COLUMN IF NOT EXISTS "total_ratings" integer DEFAULT 0 NOT NULL,
-            ADD COLUMN IF NOT EXISTS "description" text
-        `);
+        // Create service_providers table
+        await queryRunner.createTable(new Table({
+            name: "service_providers",
+            columns: [
+                { name: "user_id", type: "uuid", isPrimary: true, isNullable: false }, // Foreign key to users table
+                { name: "company_name", type: "varchar", length: "255", isNullable: true },
+                { name: "bio", type: "text", isNullable: true },
+                { name: "average_rating", type: "numeric", precision: 3, scale: 2, default: 0.00, isNullable: false },
+                { name: "total_ratings", type: "integer", default: 0, isNullable: false },
+                { name: "is_verified", type: "boolean", default: false, isNullable: false },
+                { name: "availability_status", type: "varchar", length: "50", default: "'available'", isNullable: false },
+                { name: "created_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+                { name: "updated_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+            ],
+        }), true);
 
-        // Update services table structure
-        await queryRunner.query(`
-            ALTER TABLE "services" 
-            ADD COLUMN IF NOT EXISTS "service_type_id" uuid,
-            ADD COLUMN IF NOT EXISTS "base_fare" decimal(10,2),
-            ADD COLUMN IF NOT EXISTS "is_available" boolean DEFAULT true NOT NULL,
-            ADD COLUMN IF NOT EXISTS "additional_attributes" jsonb,
-            ADD COLUMN IF NOT EXISTS "average_rating" decimal(2,1) DEFAULT 0.0 NOT NULL,
-            ADD COLUMN IF NOT EXISTS "total_ratings" integer DEFAULT 0 NOT NULL
-        `);
+        await queryRunner.createForeignKey("service_providers", new TableForeignKey({
+            columnNames: ["user_id"],
+            referencedColumnNames: ["id"],
+            onDelete: "CASCADE",
+            onUpdate: "NO ACTION",
+            referencedTableName: "users",
+        }));
 
-        // Rename columns in services table to match entity
-        await queryRunner.query(`
-            DO $$
-            BEGIN
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'services' AND column_name = 'providerId') THEN
-                    ALTER TABLE "services" RENAME COLUMN "providerId" TO "provider_id";
-                END IF;
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'services' AND column_name = 'imageUrl') THEN
-                    ALTER TABLE "services" RENAME COLUMN "imageUrl" TO "image_url";
-                END IF;
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'services' AND column_name = 'isActive') THEN
-                    ALTER TABLE "services" RENAME COLUMN "isActive" TO "is_active";
-                END IF;
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'services' AND column_name = 'createdAt') THEN
-                    ALTER TABLE "services" RENAME COLUMN "createdAt" TO "created_at";
-                END IF;
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'services' AND column_name = 'updatedAt') THEN
-                    ALTER TABLE "services" RENAME COLUMN "updatedAt" TO "updated_at";
-                END IF;
-            END $$;
-        `);
+        // Create services table
+        await queryRunner.createTable(new Table({
+            name: "services",
+            columns: [
+                { name: "id", type: "uuid", isPrimary: true, default: "uuid_generate_v4()" },
+                { name: "service_type_id", type: "uuid", isNullable: false },
+                { name: "service_provider_id", type: "uuid", isNullable: false }, // Foreign key to service_providers
+                { name: "name", type: "varchar", length: "255", isNullable: false },
+                { name: "description", type: "text", isNullable: true },
+                { name: "price", type: "numeric", precision: 10, scale: 2, isNullable: false },
+                { name: "unit", type: "varchar", length: "50", isNullable: false },
+                { name: "image_url", type: "text", isNullable: true },
+                { name: "average_rating", type: "numeric", precision: 3, scale: 2, default: 0.00, isNullable: false },
+                { name: "total_ratings", type: "integer", default: 0, isNullable: false },
+                { name: "is_active", type: "boolean", default: true, isNullable: false },
+                { name: "created_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+                { name: "updated_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+            ],
+        }), true);
+
+        await queryRunner.createForeignKey("services", new TableForeignKey({
+            columnNames: ["service_type_id"],
+            referencedColumnNames: ["id"],
+            onDelete: "RESTRICT",
+            onUpdate: "NO ACTION",
+            referencedTableName: "service_types",
+        }));
+        await queryRunner.createForeignKey("services", new TableForeignKey({
+            columnNames: ["service_provider_id"],
+            referencedColumnNames: ["user_id"],
+            onDelete: "CASCADE",
+            onUpdate: "NO ACTION",
+            referencedTableName: "service_providers",
+        }));
+
+        // Create bookings table
+        await queryRunner.createTable(new Table({
+            name: "bookings",
+            columns: [
+                { name: "id", type: "uuid", isPrimary: true, default: "uuid_generate_v4()" },
+                { name: "service_id", type: "uuid", isNullable: false },
+                { name: "consumer_id", type: "uuid", isNullable: false },
+                { name: "service_provider_id", type: "uuid", isNullable: false },
+                { name: "booking_date_time", type: "timestamp with time zone", isNullable: false },
+                { name: "status", type: "enum", enum: ["pending", "confirmed", "completed", "cancelled"], default: "'pending'", isNullable: false },
+                { name: "total_price", type: "numeric", precision: 10, scale: 2, isNullable: false },
+                { name: "notes", type: "text", isNullable: true },
+                { name: "created_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+                { name: "updated_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+            ],
+        }), true);
+
+        await queryRunner.createForeignKey("bookings", new TableForeignKey({
+            columnNames: ["service_id"],
+            referencedColumnNames: ["id"],
+            onDelete: "RESTRICT",
+            onUpdate: "NO ACTION",
+            referencedTableName: "services",
+        }));
+        await queryRunner.createForeignKey("bookings", new TableForeignKey({
+            columnNames: ["consumer_id"],
+            referencedColumnNames: ["id"],
+            onDelete: "CASCADE",
+            onUpdate: "NO ACTION",
+            referencedTableName: "users",
+        }));
+        await queryRunner.createForeignKey("bookings", new TableForeignKey({
+            columnNames: ["service_provider_id"],
+            referencedColumnNames: ["user_id"],
+            onDelete: "RESTRICT",
+            onUpdate: "NO ACTION",
+            referencedTableName: "service_providers",
+        }));
+
 
         // Create service_requests table
-        await queryRunner.query(`
-            CREATE TYPE "service_requests_status_enum" AS ENUM('PENDING', 'ACCEPTED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'REJECTED')
-        `);
+        await queryRunner.createTable(new Table({
+            name: "service_requests",
+            columns: [
+                { name: "id", type: "uuid", isPrimary: true, default: "uuid_generate_v4()" },
+                { name: "consumer_id", type: "uuid", isNullable: false },
+                { name: "service_type_id", type: "uuid", isNullable: false },
+                { name: "service_provider_id", type: "uuid", isNullable: true }, // Can be null if consumer just requests a type of service
+                { name: "description", type: "text", isNullable: false },
+                { name: "status", type: "enum", enum: ["pending", "accepted", "rejected", "completed", "cancelled"], default: "'pending'", isNullable: false },
+                { name: "request_date_time", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+                { name: "required_date_time", type: "timestamp with time zone", isNullable: true },
+                { name: "location_latitude", type: "numeric", precision: 10, scale: 8, isNullable: true },
+                { name: "location_longitude", type: "numeric", precision: 11, scale: 8, isNullable: true },
+                // Add locality_id to service_requests table
+                { name: "locality_id", type: "uuid", isNullable: true },
+                { name: "created_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+                { name: "updated_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+            ],
+        }), true);
 
-        await queryRunner.query(`
-            CREATE TYPE "service_requests_payment_status_enum" AS ENUM('pending', 'paid', 'failed', 'refunded')
-        `);
+        await queryRunner.createForeignKey("service_requests", new TableForeignKey({
+            columnNames: ["consumer_id"],
+            referencedColumnNames: ["id"],
+            onDelete: "CASCADE",
+            onUpdate: "NO ACTION",
+            referencedTableName: "users",
+        }));
+        await queryRunner.createForeignKey("service_requests", new TableForeignKey({
+            columnNames: ["service_type_id"],
+            referencedColumnNames: ["id"],
+            onDelete: "RESTRICT",
+            onUpdate: "NO ACTION",
+            referencedTableName: "service_types",
+        }));
+        await queryRunner.createForeignKey("service_requests", new TableForeignKey({
+            columnNames: ["service_provider_id"],
+            referencedColumnNames: ["user_id"],
+            onDelete: "SET NULL", // If provider is removed, request might still exist
+            onUpdate: "NO ACTION",
+            referencedTableName: "service_providers",
+        }));
 
-        await queryRunner.query(`
-            CREATE TABLE IF NOT EXISTS "service_requests" (
-                "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-                "consumer_id" uuid NOT NULL,
-                "service_provider_id" uuid,
-                "service_type_id" uuid NOT NULL,
-                "requested_at_location" geometry(POINT, 4326) NOT NULL,
-                "service_address" text NOT NULL,
-                "status" "service_requests_status_enum" DEFAULT 'PENDING' NOT NULL,
-                "otp_code" varchar(6),
-                "total_cost" decimal(10,2),
-                "payment_status" "service_requests_payment_status_enum" DEFAULT 'pending' NOT NULL,
-                "payment_method" varchar(50),
-                "request_details" jsonb,
-                "requested_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
-                "accepted_at" TIMESTAMP WITH TIME ZONE,
-                "completed_at" TIMESTAMP WITH TIME ZONE,
-                "cancelled_at" TIMESTAMP WITH TIME ZONE,
-                "created_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
-                "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
-                CONSTRAINT "FK_service_requests_consumer" FOREIGN KEY ("consumer_id") REFERENCES "users"("id") ON DELETE CASCADE,
-                CONSTRAINT "FK_service_requests_provider" FOREIGN KEY ("service_provider_id") REFERENCES "users"("id") ON DELETE SET NULL,
-                CONSTRAINT "FK_service_requests_service_type" FOREIGN KEY ("service_type_id") REFERENCES "service_types"("id") ON DELETE RESTRICT
-            )
-        `);
+        // Create new location tables: countries, states, districts, and localities
+        await queryRunner.createTable(new Table({
+            name: "countries",
+            columns: [
+                { name: "id", type: "uuid", isPrimary: true, default: "uuid_generate_v4()" },
+                { name: "name", type: "varchar", length: "255", isUnique: true, isNullable: false },
+                { name: "created_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+                { name: "updated_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+            ],
+        }), true);
 
-        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_service_requests_location" ON "service_requests" USING GIST ("requested_at_location")`);
-        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_service_requests_status" ON "service_requests" ("status")`);
-        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_service_requests_consumer_id" ON "service_requests" ("consumer_id")`);
-        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_service_requests_provider_id" ON "service_requests" ("service_provider_id")`);
+        await queryRunner.createTable(new Table({
+            name: "states",
+            columns: [
+                { name: "id", type: "uuid", isPrimary: true, default: "uuid_generate_v4()" },
+                { name: "country_id", type: "uuid", isNullable: false },
+                { name: "name", type: "varchar", length: "255", isUnique: true, isNullable: false },
+                { name: "created_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+                { name: "updated_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+            ],
+        }), true);
+
+        await queryRunner.createForeignKey("states", new TableForeignKey({
+            columnNames: ["country_id"],
+            referencedColumnNames: ["id"],
+            onDelete: "CASCADE",
+            onUpdate: "NO ACTION",
+            referencedTableName: "countries",
+        }));
+
+        await queryRunner.createTable(new Table({
+            name: "districts",
+            columns: [
+                { name: "id", type: "uuid", isPrimary: true, default: "uuid_generate_v4()" },
+                { name: "state_id", type: "uuid", isNullable: false },
+                { name: "name", type: "varchar", length: "255", isUnique: true, isNullable: false },
+                { name: "created_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+                { name: "updated_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+            ],
+        }), true);
+
+        await queryRunner.createForeignKey("districts", new TableForeignKey({
+            columnNames: ["state_id"],
+            referencedColumnNames: ["id"],
+            onDelete: "CASCADE",
+            onUpdate: "NO ACTION",
+            referencedTableName: "states",
+        }));
+
+        await queryRunner.createTable(new Table({
+            name: "localities",
+            columns: [
+                { name: "id", type: "uuid", isPrimary: true, default: "uuid_generate_v4()" },
+                { name: "district_id", type: "uuid", isNullable: false },
+                { name: "name", type: "varchar", length: "255", isUnique: true, isNullable: false },
+                { name: "created_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+                { name: "updated_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+            ],
+        }), true);
+
+        await queryRunner.createForeignKey("localities", new TableForeignKey({
+            columnNames: ["district_id"],
+            referencedColumnNames: ["id"],
+            onDelete: "CASCADE",
+            onUpdate: "NO ACTION",
+            referencedTableName: "districts",
+        }));
+
+        // Add foreign key for locality_id in service_requests
+        await queryRunner.createForeignKey("service_requests", new TableForeignKey({
+            columnNames: ["locality_id"],
+            referencedColumnNames: ["id"],
+            onDelete: "SET NULL",
+            onUpdate: "NO ACTION",
+            referencedTableName: "localities",
+        }));
+
+        // Create a many-to-many join table for service_providers and localities
+        await queryRunner.createTable(new Table({
+            name: "service_provider_localities",
+            columns: [
+                { name: "service_provider_id", type: "uuid", isPrimary: true, isNullable: false },
+                { name: "locality_id", type: "uuid", isPrimary: true, isNullable: false },
+                { name: "created_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+                { name: "updated_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+            ],
+        }), true);
+
+        await queryRunner.createForeignKey("service_provider_localities", new TableForeignKey({
+            columnNames: ["service_provider_id"],
+            referencedColumnNames: ["user_id"],
+            onDelete: "CASCADE",
+            onUpdate: "NO ACTION",
+            referencedTableName: "service_providers",
+        }));
+
+        await queryRunner.createForeignKey("service_provider_localities", new TableForeignKey({
+            columnNames: ["locality_id"],
+            referencedColumnNames: ["id"],
+            onDelete: "CASCADE",
+            onUpdate: "NO ACTION",
+            referencedTableName: "localities",
+        }));
 
         // Create ratings_reviews table
-        await queryRunner.query(`
-            CREATE TABLE IF NOT EXISTS "ratings_reviews" (
-                "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-                "service_request_id" uuid UNIQUE NOT NULL,
-                "consumer_id" uuid NOT NULL,
-                "service_provider_id" uuid NOT NULL,
-                "rating" integer NOT NULL CHECK (rating >= 1 AND rating <= 5),
-                "review_text" text,
-                "is_verified" boolean DEFAULT true NOT NULL,
-                "helpful_count" integer DEFAULT 0 NOT NULL,
-                "created_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
-                "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
-                CONSTRAINT "FK_ratings_reviews_service_request" FOREIGN KEY ("service_request_id") REFERENCES "service_requests"("id") ON DELETE CASCADE,
-                CONSTRAINT "FK_ratings_reviews_consumer" FOREIGN KEY ("consumer_id") REFERENCES "users"("id") ON DELETE CASCADE,
-                CONSTRAINT "FK_ratings_reviews_provider" FOREIGN KEY ("service_provider_id") REFERENCES "users"("id") ON DELETE CASCADE
-            )
-        `);
+        await queryRunner.createTable(new Table({
+            name: "ratings_reviews",
+            columns: [
+                { name: "id", type: "uuid", isPrimary: true, default: "uuid_generate_v4()" },
+                { name: "service_request_id", type: "uuid", isUnique: true, isNullable: false }, // One review per request
+                { name: "consumer_id", type: "uuid", isNullable: false },
+                { name: "service_provider_id", type: "uuid", isNullable: false },
+                { name: "rating", type: "integer", isNullable: false },
+                { name: "review_text", type: "text", isNullable: true },
+                { name: "created_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+                { name: "updated_at", type: "timestamp with time zone", default: "NOW()", isNullable: false },
+            ],
+        }), true);
 
-        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_ratings_reviews_provider_id" ON "ratings_reviews" ("service_provider_id")`);
-        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_ratings_reviews_created_at" ON "ratings_reviews" ("created_at")`);
-
-        // Add foreign key constraint for services.service_type_id
-        await queryRunner.query(`
-            DO $$
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.table_constraints 
-                    WHERE constraint_name = 'FK_services_service_type'
-                ) THEN
-                    ALTER TABLE "services" 
-                    ADD CONSTRAINT "FK_services_service_type" 
-                    FOREIGN KEY ("service_type_id") REFERENCES "service_types"("id") ON DELETE RESTRICT;
-                END IF;
-            END $$;
-        `);
-
-        // Add index for services.provider_id
-        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_services_provider_id" ON "services" ("provider_id")`);
-
-        // Insert default service categories
-        await queryRunner.query(`
-            INSERT INTO "service_categories" ("name", "description", "sort_order") VALUES
-            ('Household Services', 'Home maintenance and repair services', 1),
-            ('Food & Beverage', 'Food delivery and catering services', 2),
-            ('Transportation', 'Vehicle and transportation services', 3),
-            ('Healthcare', 'Medical and wellness services', 4),
-            ('Beauty & Personal Care', 'Beauty and grooming services', 5),
-            ('Education & Training', 'Learning and skill development services', 6),
-            ('Professional Services', 'Business and professional consulting', 7),
-            ('Entertainment', 'Event and entertainment services', 8)
-            ON CONFLICT (name) DO NOTHING
-        `);
+        await queryRunner.createForeignKey("ratings_reviews", new TableForeignKey({
+            columnNames: ["service_request_id"],
+            referencedColumnNames: ["id"],
+            onDelete: "CASCADE",
+            onUpdate: "NO ACTION",
+            referencedTableName: "service_requests",
+        }));
+        await queryRunner.createForeignKey("ratings_reviews", new TableForeignKey({
+            columnNames: ["consumer_id"],
+            referencedColumnNames: ["id"],
+            onDelete: "CASCADE",
+            onUpdate: "NO ACTION",
+            referencedTableName: "users",
+        }));
+        await queryRunner.createForeignKey("ratings_reviews", new TableForeignKey({
+            columnNames: ["service_provider_id"],
+            referencedColumnNames: ["user_id"],
+            onDelete: "CASCADE",
+            onUpdate: "NO ACTION",
+            referencedTableName: "service_providers",
+        }));
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
-        // Drop tables in reverse order
-        await queryRunner.query(`DROP TABLE IF EXISTS "ratings_reviews" CASCADE`);
-        await queryRunner.query(`DROP TABLE IF EXISTS "service_requests" CASCADE`);
-        await queryRunner.query(`DROP TABLE IF EXISTS "service_types" CASCADE`);
-        await queryRunner.query(`DROP TABLE IF EXISTS "service_categories" CASCADE`);
-        await queryRunner.query(`DROP TABLE IF EXISTS "localities" CASCADE`);
+        // Drop foreign keys first to avoid dependency issues in reverse order of creation
+        const foreignKeysToDrop = [
+            // From ratings_reviews
+            new TableForeignKey({ columnNames: ["service_request_id"], referencedColumnNames: ["id"], referencedTableName: "service_requests" }),
+            new TableForeignKey({ columnNames: ["consumer_id"], referencedColumnNames: ["id"], referencedTableName: "users" }),
+            new TableForeignKey({ columnNames: ["service_provider_id"], referencedColumnNames: ["user_id"], referencedTableName: "service_providers" }),
+            // From service_provider_localities
+            new TableForeignKey({ columnNames: ["service_provider_id"], referencedColumnNames: ["user_id"], referencedTableName: "service_providers" }),
+            new TableForeignKey({ columnNames: ["locality_id"], referencedColumnNames: ["id"], referencedTableName: "localities" }),
+            // From service_requests
+            new TableForeignKey({ columnNames: ["locality_id"], referencedColumnNames: ["id"], referencedTableName: "localities" }),
+            new TableForeignKey({ columnNames: ["consumer_id"], referencedColumnNames: ["id"], referencedTableName: "users" }),
+            new TableForeignKey({ columnNames: ["service_type_id"], referencedColumnNames: ["id"], referencedTableName: "service_types" }),
+            new TableForeignKey({ columnNames: ["service_provider_id"], referencedColumnNames: ["user_id"], referencedTableName: "service_providers" }),
+            // From bookings
+            new TableForeignKey({ columnNames: ["service_id"], referencedColumnNames: ["id"], referencedTableName: "services" }),
+            new TableForeignKey({ columnNames: ["consumer_id"], referencedColumnNames: ["id"], referencedTableName: "users" }),
+            new TableForeignKey({ columnNames: ["service_provider_id"], referencedColumnNames: ["user_id"], referencedTableName: "service_providers" }),
+            // From services
+            new TableForeignKey({ columnNames: ["service_type_id"], referencedColumnNames: ["id"], referencedTableName: "service_types" }),
+            new TableForeignKey({ columnNames: ["service_provider_id"], referencedColumnNames: ["user_id"], referencedTableName: "service_providers" }),
+            // From service_providers
+            new TableForeignKey({ columnNames: ["user_id"], referencedColumnNames: ["id"], referencedTableName: "users" }),
+            // From service_types
+            new TableForeignKey({ columnNames: ["category_id"], referencedColumnNames: ["id"], referencedTableName: "service_categories" }),
+            // From localities
+            new TableForeignKey({ columnNames: ["district_id"], referencedColumnNames: ["id"], referencedTableName: "districts" }),
+            // From districts
+            new TableForeignKey({ columnNames: ["state_id"], referencedColumnNames: ["id"], referencedTableName: "states" }),
+            // From states
+            new TableForeignKey({ columnNames: ["country_id"], referencedColumnNames: ["id"], referencedTableName: "countries" }),
+        ];
 
-        // Drop enums
-        await queryRunner.query(`DROP TYPE IF EXISTS "service_requests_payment_status_enum"`);
-        await queryRunner.query(`DROP TYPE IF EXISTS "service_requests_status_enum"`);
-        await queryRunner.query(`DROP TYPE IF EXISTS "service_types_base_fare_type_enum"`);
+        // Manually drop foreign keys for the relevant tables, starting with dependent tables
+        const tablesWithFks = [
+            "ratings_reviews",
+            "service_provider_localities",
+            "service_requests",
+            "bookings",
+            "services",
+            "service_providers",
+            "service_types",
+            "localities",
+            "districts",
+            "states",
+        ];
 
-        // Remove added columns from users table
-        await queryRunner.query(`
-            ALTER TABLE "users" 
-            DROP COLUMN IF EXISTS "passport_photo_url",
-            DROP COLUMN IF EXISTS "is_verified",
-            DROP COLUMN IF EXISTS "average_rating",
-            DROP COLUMN IF EXISTS "total_ratings",
-            DROP COLUMN IF EXISTS "description"
-        `);
+        for (const tableName of tablesWithFks) {
+            const table = await queryRunner.getTable(tableName);
+            if (table) {
+                // Filter for foreign keys that reference tables being dropped or modified in this migration
+                const fksToDropForTable = table.foreignKeys.filter(fk =>
+                    foreignKeysToDrop.some(fkt =>
+                        fkt.columnNames.every((col, i) => col === fk.columnNames[i]) &&
+                        fkt.referencedColumnNames.every((refCol, i) => refCol === fk.referencedColumnNames[i]) &&
+                        fkt.referencedTableName === fk.referencedTableName
+                    )
+                );
+                if (fksToDropForTable.length > 0) {
+                    await queryRunner.dropForeignKeys(table, fksToDropForTable);
+                }
+            }
+        }
 
-        // Remove added columns from services table
-        await queryRunner.query(`
-            ALTER TABLE "services" 
-            DROP COLUMN IF EXISTS "service_type_id",
-            DROP COLUMN IF EXISTS "base_fare",
-            DROP COLUMN IF EXISTS "is_available",
-            DROP COLUMN IF EXISTS "additional_attributes",
-            DROP COLUMN IF EXISTS "average_rating",
-            DROP COLUMN IF EXISTS "total_ratings"
-        `);
+        // Drop tables in reverse order of creation / dependency
+        await queryRunner.dropTable("ratings_reviews");
+        await queryRunner.dropTable("service_provider_localities");
+        await queryRunner.dropTable("bookings");
+        await queryRunner.dropTable("service_requests");
+        await queryRunner.dropTable("services");
+        await queryRunner.dropTable("service_providers");
+        await queryRunner.dropTable("service_types");
+        await queryRunner.dropTable("service_categories");
+        await queryRunner.dropTable("localities");
+        await queryRunner.dropTable("districts");
+        await queryRunner.dropTable("states");
+        await queryRunner.dropTable("countries");
+        await queryRunner.dropTable("users");
 
-        // Revert column names in services table
-        await queryRunner.query(`
-            DO $$
-            BEGIN
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'services' AND column_name = 'provider_id') THEN
-                    ALTER TABLE "services" RENAME COLUMN "provider_id" TO "providerId";
-                END IF;
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'services' AND column_name = 'image_url') THEN
-                    ALTER TABLE "services" RENAME COLUMN "image_url" TO "imageUrl";
-                END IF;
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'services' AND column_name = 'is_active') THEN
-                    ALTER TABLE "services" RENAME COLUMN "is_active" TO "isActive";
-                END IF;
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'services' AND column_name = 'created_at') THEN
-                    ALTER TABLE "services" RENAME COLUMN "created_at" TO "createdAt";
-                END IF;
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'services' AND column_name = 'updated_at') THEN
-                    ALTER TABLE "services" RENAME COLUMN "updated_at" TO "updatedAt";
-                END IF;
-            END $$;
-        `);
+
+        // Drop the uuid-ossp extension if it's no longer used by any other tables/migrations
+        await queryRunner.query(`DROP EXTENSION IF EXISTS "uuid-ossp"`);
+        // Drop the custom enum type
+        await queryRunner.query(`DROP TYPE IF EXISTS "public"."base_fare_type_enum"`);
     }
 }

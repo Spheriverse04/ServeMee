@@ -269,7 +269,6 @@ export default function EditServicePage() {
             {imageUrl && !imageFile && ( // Display existing image if no new file is selected
               <div className="mb-4">
                 <p className="text-sm text-gray-600 mb-2">Current Image:</p>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={imageUrl}
                   alt="Current Service"
@@ -280,7 +279,6 @@ export default function EditServicePage() {
             {imageFile && ( // Display preview of newly selected image
                 <div className="mb-4">
                     <p className="text-sm text-gray-600 mb-2">New Image Preview:</p>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                         src={URL.createObjectURL(imageFile)}
                         alt="New Service Preview"
@@ -343,3 +341,4 @@ export default function EditServicePage() {
     </div>
   );
 }
+

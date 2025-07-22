@@ -3,15 +3,14 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth'; // Import getAuth for Firebase Authentication
 
 // Your Firebase configuration.
-// Ensure these environment variables are correctly set in frontend/.env.local
+// Using hardcoded values for now - in production, use environment variables
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-  // measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID, // Omit/comment out if not present/needed for analytics
+  apiKey: "AIzaSyD3ZN_r21knV3ybcCTSbmL9x9mybtdmHeQ",
+  authDomain: "servemee-app.firebaseapp.com",
+  projectId: "servemee-app",
+  storageBucket: "servemee-app.firebasestorage.app",
+  messagingSenderId: "752359927449",
+  appId: "1:752359927449:web:c86862eb257697eab7d208"
 };
 
 // Initialize Firebase App

@@ -11,7 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DeepPartial, Repository } from 'typeorm';
 import { User } from '../user/user.entity';
 import { RegisterUserDto } from './dto/register-user.dto';
-import * as admin from 'firebase-admin'; // Keep this for other Firebase Admin SDK uses (like token verification)
+import * as admin from 'firebase-admin';
 import { UserRole } from './roles/roles.enum';
 
 @Injectable()
@@ -28,69 +28,64 @@ export class AuthService {
    * @returns The created User entity.
    */
   async registerUser(registerUserDto: RegisterUserDto): Promise<User> {
-    // Destructure firebaseUid along with other fields
-    const { firebaseUid, email, fullName, phoneNumber, role, displayName } = registerUserDto;
+    // Destructure firebaseUid along with other fields (fullName removed)
+    const { firebaseUid, email, phoneNumber, role, displayName } = registerUserDto;
 
     // Check if user already exists in your database based on Firebase UID, email, or phone number
     let existingUser = await this.userRepository.findOne({ where: { firebaseUid } });
     if (existingUser) {
       throw new ConflictException('User with this Firebase UID already exists in database.');
     }
-    if (email) {
-      existingUser = await this.userRepository.findOne({ where: { email } });
-      if (existingUser) {
-        throw new ConflictException('User with this email already exists in database.');
-      }
+
+    // You might also want to check for existing email or phone number if they are unique
+    existingUser = await this.userRepository.findOne({ where: { email } });
+    if (existingUser) {
+      throw new ConflictException('User with this email already exists.');
     }
+
     if (phoneNumber) {
       existingUser = await this.userRepository.findOne({ where: { phoneNumber } });
       if (existingUser) {
-        throw new ConflictException('User with this phone number already exists in database.');
+        throw new ConflictException('User with this phone number already exists.');
       }
     }
 
-    try {
-      // Create user in your local database using the firebaseUid provided by the frontend
-      const newUser = this.userRepository.create({
-        firebaseUid, // Use the UID received from the frontend
-        email,
-        fullName,
-        displayName,
-        phoneNumber,
-        role,
-        isActive: true,
-      });
+    // Create and save the new user
+    const newUser = this.userRepository.create({
+      firebaseUid,
+      email,
+      displayName, // Ensure this maps to your database's display_name column
+      phoneNumber,
+      role,
+      isActive: true, // Default to active
+    });
 
-      await this.userRepository.save(newUser);
-      console.log(`User ${newUser.email} registered with Firebase UID: ${firebaseUid} in database.`);
-      return newUser;
-    } catch (error: any) {
-      console.error('Error during backend database user registration:', error);
-      throw new InternalServerErrorException('Failed to register user in database.');
+    try {
+      return await this.userRepository.save(newUser);
+    } catch (error) {
+      // It's good practice to log the full error for debugging on the server
+      console.error('Database save error during registration:', error);
+      // Re-throw a more specific error if needed, or a generic 500
+      throw new InternalServerErrorException('Failed to register user due to a database error.');
     }
   }
 
-  // ... (keep the validateAndCreateUser and other methods as they are)
   /**
-   * This method is called after Firebase ID token verification
-   * It ensures the user exists in your local database
-   * and creates them if they don't, based on the Firebase ID token.
-   * @param firebaseUid The Firebase UID from the authenticated token.
-   * @param email The email from the Firebase token (optional).
-   * @param displayName The display name from the Firebase token (optional).
+   * Validates a Firebase ID token and ensures the user exists in your database.
+   * Creates a new user entry if they don't exist.
+   * @param idToken The Firebase ID token.
    * @returns The User entity from your database.
    */
-  async validateAndCreateUser(
-    firebaseUid: string,
-    email?: string,
-    displayName?: string,
-    role?: UserRole, // Add role parameter to create user in DB
-  ): Promise<User> {
+  async validateAndCreateUser(idToken: string, role?: UserRole, displayName?: string, email?: string): Promise<User> {
     try {
+      const decodedToken = await admin.auth().verifyIdToken(idToken);
+      const firebaseUid = decodedToken.uid;
+      email = email || decodedToken.email; // Use provided email or from token
+
       let user = await this.userRepository.findOne({ where: { firebaseUid } });
 
       if (!user) {
-        // User does not exist in our database, create them
+        // If user doesn't exist in your database, create them
         // This assumes default role 'consumer' or expects it from a different flow
         // For registration via frontend, the frontend specifies role
         // For login, Firebase token doesn't directly contain role, so we need a default or another mechanism.

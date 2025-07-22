@@ -17,20 +17,6 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
--- Name: postgis; Type: EXTENSION; Schema: -; Owner: -
---
-
-CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA public;
-
-
---
--- Name: EXTENSION postgis; Type: COMMENT; Schema: -; Owner: 
---
-
-COMMENT ON EXTENSION postgis IS 'PostGIS geometry and geography spatial types and functions';
-
-
---
 -- Name: uuid-ossp; Type: EXTENSION; Schema: -; Owner: -
 --
 
@@ -45,19 +31,75 @@ COMMENT ON EXTENSION "uuid-ossp" IS 'generate universally unique identifiers (UU
 
 
 --
+-- Name: base_fare_type_enum; Type: TYPE; Schema: public; Owner: servemee_user
+--
+
+CREATE TYPE public.base_fare_type_enum AS ENUM (
+    'hourly',
+    'fixed',
+    'per_km',
+    'per_item',
+    'custom'
+);
+
+
+ALTER TYPE public.base_fare_type_enum OWNER TO servemee_user;
+
+--
 -- Name: bookings_status_enum; Type: TYPE; Schema: public; Owner: servemee_user
 --
 
 CREATE TYPE public.bookings_status_enum AS ENUM (
-    'PENDING',
-    'CONFIRMED',
-    'CANCELLED',
-    'COMPLETED',
-    'REJECTED'
+    'pending',
+    'confirmed',
+    'completed',
+    'cancelled'
 );
 
 
 ALTER TYPE public.bookings_status_enum OWNER TO servemee_user;
+
+--
+-- Name: service_requests_status_enum; Type: TYPE; Schema: public; Owner: servemee_user
+--
+
+CREATE TYPE public.service_requests_status_enum AS ENUM (
+    'pending',
+    'accepted',
+    'rejected',
+    'completed',
+    'cancelled'
+);
+
+
+ALTER TYPE public.service_requests_status_enum OWNER TO servemee_user;
+
+--
+-- Name: service_types_base_fare_type_enum; Type: TYPE; Schema: public; Owner: servemee_user
+--
+
+CREATE TYPE public.service_types_base_fare_type_enum AS ENUM (
+    'hourly',
+    'fixed',
+    'per_km',
+    'per_item',
+    'custom'
+);
+
+
+ALTER TYPE public.service_types_base_fare_type_enum OWNER TO servemee_user;
+
+--
+-- Name: users_role_enum; Type: TYPE; Schema: public; Owner: servemee_user
+--
+
+CREATE TYPE public.users_role_enum AS ENUM (
+    'consumer',
+    'service_provider'
+);
+
+
+ALTER TYPE public.users_role_enum OWNER TO servemee_user;
 
 SET default_tablespace = '';
 
@@ -69,19 +111,48 @@ SET default_table_access_method = heap;
 
 CREATE TABLE public.bookings (
     id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
-    "startTime" timestamp with time zone NOT NULL,
-    "endTime" timestamp with time zone NOT NULL,
-    "agreedPrice" numeric(10,2) NOT NULL,
-    status public.bookings_status_enum DEFAULT 'PENDING'::public.bookings_status_enum NOT NULL,
-    consumer_id uuid NOT NULL,
     service_id uuid NOT NULL,
-    created_at timestamp without time zone DEFAULT now() NOT NULL,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    notes text
+    consumer_id uuid NOT NULL,
+    service_provider_id uuid NOT NULL,
+    booking_date_time timestamp with time zone NOT NULL,
+    status public.bookings_status_enum DEFAULT 'pending'::public.bookings_status_enum NOT NULL,
+    total_price numeric(10,2) NOT NULL,
+    notes text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
 ALTER TABLE public.bookings OWNER TO servemee_user;
+
+--
+-- Name: countries; Type: TABLE; Schema: public; Owner: servemee_user
+--
+
+CREATE TABLE public.countries (
+    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    name character varying(255) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.countries OWNER TO servemee_user;
+
+--
+-- Name: districts; Type: TABLE; Schema: public; Owner: servemee_user
+--
+
+CREATE TABLE public.districts (
+    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    state_id uuid NOT NULL,
+    name character varying(255) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.districts OWNER TO servemee_user;
 
 --
 -- Name: localities; Type: TABLE; Schema: public; Owner: servemee_user
@@ -89,8 +160,8 @@ ALTER TABLE public.bookings OWNER TO servemee_user;
 
 CREATE TABLE public.localities (
     id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    district_id uuid NOT NULL,
     name character varying(255) NOT NULL,
-    polygon_geometry public.geometry(Polygon,4326) NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -134,24 +205,6 @@ ALTER SEQUENCE public.migrations_id_seq OWNED BY public.migrations.id;
 
 
 --
--- Name: provider_services; Type: TABLE; Schema: public; Owner: servemee_user
---
-
-CREATE TABLE public.provider_services (
-    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
-    service_provider_id uuid NOT NULL,
-    service_type_id uuid NOT NULL,
-    base_fare numeric(10,2) NOT NULL,
-    is_available boolean DEFAULT true NOT NULL,
-    additional_attributes jsonb,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
-ALTER TABLE public.provider_services OWNER TO servemee_user;
-
---
 -- Name: ratings_reviews; Type: TABLE; Schema: public; Owner: servemee_user
 --
 
@@ -163,8 +216,7 @@ CREATE TABLE public.ratings_reviews (
     rating integer NOT NULL,
     review_text text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT ratings_reviews_rating_check CHECK (((rating >= 1) AND (rating <= 5)))
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
@@ -179,6 +231,8 @@ CREATE TABLE public.service_categories (
     name character varying(255) NOT NULL,
     description text,
     icon_url text,
+    is_active boolean DEFAULT true NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -206,11 +260,12 @@ ALTER TABLE public.service_provider_localities OWNER TO servemee_user;
 
 CREATE TABLE public.service_providers (
     user_id uuid NOT NULL,
-    description text,
-    passport_photo_url text,
-    is_verified boolean DEFAULT false NOT NULL,
-    average_rating numeric(2,1) DEFAULT 0.0 NOT NULL,
+    company_name character varying(255),
+    bio text,
+    average_rating numeric(3,2) DEFAULT 0 NOT NULL,
     total_ratings integer DEFAULT 0 NOT NULL,
+    is_verified boolean DEFAULT false NOT NULL,
+    availability_status character varying(50) DEFAULT 'available'::character varying NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -225,20 +280,15 @@ ALTER TABLE public.service_providers OWNER TO servemee_user;
 CREATE TABLE public.service_requests (
     id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
     consumer_id uuid NOT NULL,
-    service_provider_id uuid,
     service_type_id uuid NOT NULL,
-    requested_at_location public.geometry(Point,4326) NOT NULL,
-    service_address text NOT NULL,
-    status character varying(50) NOT NULL,
-    otp_code character varying(6),
-    total_cost numeric(10,2),
-    payment_status character varying(50) DEFAULT 'pending'::character varying NOT NULL,
-    payment_method character varying(50),
-    request_details jsonb,
-    requested_at timestamp with time zone DEFAULT now() NOT NULL,
-    accepted_at timestamp with time zone,
-    completed_at timestamp with time zone,
-    cancelled_at timestamp with time zone,
+    service_provider_id uuid,
+    description text NOT NULL,
+    status public.service_requests_status_enum DEFAULT 'pending'::public.service_requests_status_enum NOT NULL,
+    request_date_time timestamp with time zone DEFAULT now() NOT NULL,
+    required_date_time timestamp with time zone,
+    location_latitude numeric(10,8),
+    location_longitude numeric(11,8),
+    locality_id uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -255,7 +305,12 @@ CREATE TABLE public.service_types (
     category_id uuid NOT NULL,
     name character varying(255) NOT NULL,
     description text,
-    base_fare_type character varying(50) NOT NULL,
+    base_fare_type public.service_types_base_fare_type_enum NOT NULL,
+    average_rating numeric(3,2) DEFAULT 0 NOT NULL,
+    total_ratings integer DEFAULT 0 NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    additional_attributes jsonb,
+    is_active boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -269,18 +324,37 @@ ALTER TABLE public.service_types OWNER TO servemee_user;
 
 CREATE TABLE public.services (
     id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
-    name character varying(100) NOT NULL,
-    description text NOT NULL,
+    service_type_id uuid NOT NULL,
+    service_provider_id uuid NOT NULL,
+    name character varying(255) NOT NULL,
+    description text,
     price numeric(10,2) NOT NULL,
-    category character varying(50),
-    "isActive" boolean DEFAULT true NOT NULL,
-    "providerId" uuid NOT NULL,
-    "createdAt" timestamp without time zone DEFAULT now() NOT NULL,
-    "updatedAt" timestamp without time zone DEFAULT now() NOT NULL
+    unit character varying(50) NOT NULL,
+    image_url text,
+    average_rating numeric(3,2) DEFAULT 0 NOT NULL,
+    total_ratings integer DEFAULT 0 NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
 ALTER TABLE public.services OWNER TO servemee_user;
+
+--
+-- Name: states; Type: TABLE; Schema: public; Owner: servemee_user
+--
+
+CREATE TABLE public.states (
+    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    country_id uuid NOT NULL,
+    name character varying(255) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.states OWNER TO servemee_user;
 
 --
 -- Name: users; Type: TABLE; Schema: public; Owner: servemee_user
@@ -288,17 +362,19 @@ ALTER TABLE public.services OWNER TO servemee_user;
 
 CREATE TABLE public.users (
     id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
-    firebase_uid character varying(128) NOT NULL,
-    email character varying(255),
+    firebase_uid character varying(255) NOT NULL,
+    email character varying(255) NOT NULL,
     phone_number character varying(20),
-    username character varying(50),
+    display_name character varying(255),
     profile_picture_url text,
-    full_name character varying(255) NOT NULL,
-    role character varying(50) NOT NULL,
-    is_active boolean DEFAULT true NOT NULL,
+    address character varying(255),
+    latitude numeric(10,8),
+    longitude numeric(11,8),
+    role public.users_role_enum DEFAULT 'consumer'::public.users_role_enum NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    "displayName" character varying(100)
+    last_login timestamp with time zone,
+    is_active boolean DEFAULT true NOT NULL
 );
 
 
@@ -312,11 +388,83 @@ ALTER TABLE ONLY public.migrations ALTER COLUMN id SET DEFAULT nextval('public.m
 
 
 --
+-- Name: states PK_09ab30ca0975c02656483265f4f; Type: CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.states
+    ADD CONSTRAINT "PK_09ab30ca0975c02656483265f4f" PRIMARY KEY (id);
+
+
+--
+-- Name: service_types PK_1dc93417a097cdee3491f39d7cc; Type: CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.service_types
+    ADD CONSTRAINT "PK_1dc93417a097cdee3491f39d7cc" PRIMARY KEY (id);
+
+
+--
+-- Name: service_provider_localities PK_1de4df8654e7df5ea7c328ac9b6; Type: CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.service_provider_localities
+    ADD CONSTRAINT "PK_1de4df8654e7df5ea7c328ac9b6" PRIMARY KEY (service_provider_id, locality_id);
+
+
+--
+-- Name: service_providers PK_2cc7c52b39288cadfad8a0ad63c; Type: CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.service_providers
+    ADD CONSTRAINT "PK_2cc7c52b39288cadfad8a0ad63c" PRIMARY KEY (user_id);
+
+
+--
+-- Name: ratings_reviews PK_7b074af47390c638b415e2f7376; Type: CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.ratings_reviews
+    ADD CONSTRAINT "PK_7b074af47390c638b415e2f7376" PRIMARY KEY (id);
+
+
+--
+-- Name: localities PK_7fa2291f3588423d800e02a8479; Type: CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.localities
+    ADD CONSTRAINT "PK_7fa2291f3588423d800e02a8479" PRIMARY KEY (id);
+
+
+--
 -- Name: migrations PK_8c82d7f526340ab734260ea46be; Type: CONSTRAINT; Schema: public; Owner: servemee_user
 --
 
 ALTER TABLE ONLY public.migrations
     ADD CONSTRAINT "PK_8c82d7f526340ab734260ea46be" PRIMARY KEY (id);
+
+
+--
+-- Name: districts PK_972a72ff4e3bea5c7f43a2b98af; Type: CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.districts
+    ADD CONSTRAINT "PK_972a72ff4e3bea5c7f43a2b98af" PRIMARY KEY (id);
+
+
+--
+-- Name: users PK_a3ffb1c0c8416b9fc6f907b7433; Type: CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT "PK_a3ffb1c0c8416b9fc6f907b7433" PRIMARY KEY (id);
+
+
+--
+-- Name: countries PK_b2d7006793e8697ab3ae2deff18; Type: CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.countries
+    ADD CONSTRAINT "PK_b2d7006793e8697ab3ae2deff18" PRIMARY KEY (id);
 
 
 --
@@ -336,210 +484,115 @@ ALTER TABLE ONLY public.bookings
 
 
 --
--- Name: localities localities_name_key; Type: CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.localities
-    ADD CONSTRAINT localities_name_key UNIQUE (name);
-
-
---
--- Name: localities localities_pkey; Type: CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.localities
-    ADD CONSTRAINT localities_pkey PRIMARY KEY (id);
-
-
---
--- Name: provider_services provider_services_pkey; Type: CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.provider_services
-    ADD CONSTRAINT provider_services_pkey PRIMARY KEY (id);
-
-
---
--- Name: provider_services provider_services_service_provider_id_service_type_id_key; Type: CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.provider_services
-    ADD CONSTRAINT provider_services_service_provider_id_service_type_id_key UNIQUE (service_provider_id, service_type_id);
-
-
---
--- Name: ratings_reviews ratings_reviews_pkey; Type: CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.ratings_reviews
-    ADD CONSTRAINT ratings_reviews_pkey PRIMARY KEY (id);
-
-
---
--- Name: ratings_reviews ratings_reviews_service_request_id_key; Type: CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.ratings_reviews
-    ADD CONSTRAINT ratings_reviews_service_request_id_key UNIQUE (service_request_id);
-
-
---
--- Name: service_categories service_categories_name_key; Type: CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.service_categories
-    ADD CONSTRAINT service_categories_name_key UNIQUE (name);
-
-
---
--- Name: service_categories service_categories_pkey; Type: CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.service_categories
-    ADD CONSTRAINT service_categories_pkey PRIMARY KEY (id);
-
-
---
--- Name: service_provider_localities service_provider_localities_pkey; Type: CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.service_provider_localities
-    ADD CONSTRAINT service_provider_localities_pkey PRIMARY KEY (service_provider_id, locality_id);
-
-
---
--- Name: service_providers service_providers_pkey; Type: CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.service_providers
-    ADD CONSTRAINT service_providers_pkey PRIMARY KEY (user_id);
-
-
---
--- Name: service_requests service_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: servemee_user
+-- Name: service_requests PK_ee60bcd826b7e130bfbd97daf66; Type: CONSTRAINT; Schema: public; Owner: servemee_user
 --
 
 ALTER TABLE ONLY public.service_requests
-    ADD CONSTRAINT service_requests_pkey PRIMARY KEY (id);
+    ADD CONSTRAINT "PK_ee60bcd826b7e130bfbd97daf66" PRIMARY KEY (id);
 
 
 --
--- Name: service_types service_types_category_id_name_key; Type: CONSTRAINT; Schema: public; Owner: servemee_user
+-- Name: service_categories PK_fe4da5476c4ffe5aa2d3524ae68; Type: CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.service_categories
+    ADD CONSTRAINT "PK_fe4da5476c4ffe5aa2d3524ae68" PRIMARY KEY (id);
+
+
+--
+-- Name: users UQ_0fd54ced5cc75f7cb92925dd803; Type: CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT "UQ_0fd54ced5cc75f7cb92925dd803" UNIQUE (firebase_uid);
+
+
+--
+-- Name: districts UQ_6a6fd6d258022e5576afbad90b4; Type: CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.districts
+    ADD CONSTRAINT "UQ_6a6fd6d258022e5576afbad90b4" UNIQUE (name);
+
+
+--
+-- Name: service_types UQ_7dadebaed69653520aa93bbc84d; Type: CONSTRAINT; Schema: public; Owner: servemee_user
 --
 
 ALTER TABLE ONLY public.service_types
-    ADD CONSTRAINT service_types_category_id_name_key UNIQUE (category_id, name);
+    ADD CONSTRAINT "UQ_7dadebaed69653520aa93bbc84d" UNIQUE (name);
 
 
 --
--- Name: service_types service_types_pkey; Type: CONSTRAINT; Schema: public; Owner: servemee_user
+-- Name: service_categories UQ_7ef2e28b495d09a4eb28997c653; Type: CONSTRAINT; Schema: public; Owner: servemee_user
 --
 
-ALTER TABLE ONLY public.service_types
-    ADD CONSTRAINT service_types_pkey PRIMARY KEY (id);
-
-
---
--- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.users
-    ADD CONSTRAINT users_email_key UNIQUE (email);
+ALTER TABLE ONLY public.service_categories
+    ADD CONSTRAINT "UQ_7ef2e28b495d09a4eb28997c653" UNIQUE (name);
 
 
 --
--- Name: users users_firebase_uid_key; Type: CONSTRAINT; Schema: public; Owner: servemee_user
+-- Name: localities UQ_88c3b7404cf8430b49ce0041c87; Type: CONSTRAINT; Schema: public; Owner: servemee_user
 --
 
-ALTER TABLE ONLY public.users
-    ADD CONSTRAINT users_firebase_uid_key UNIQUE (firebase_uid);
+ALTER TABLE ONLY public.localities
+    ADD CONSTRAINT "UQ_88c3b7404cf8430b49ce0041c87" UNIQUE (name);
 
 
 --
--- Name: users users_phone_number_key; Type: CONSTRAINT; Schema: public; Owner: servemee_user
+-- Name: users UQ_97672ac88f789774dd47f7c8be3; Type: CONSTRAINT; Schema: public; Owner: servemee_user
 --
 
 ALTER TABLE ONLY public.users
-    ADD CONSTRAINT users_phone_number_key UNIQUE (phone_number);
+    ADD CONSTRAINT "UQ_97672ac88f789774dd47f7c8be3" UNIQUE (email);
 
 
 --
--- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: servemee_user
+-- Name: ratings_reviews UQ_e8bef70d6ae75899c8de2bdf7ac; Type: CONSTRAINT; Schema: public; Owner: servemee_user
 --
 
-ALTER TABLE ONLY public.users
-    ADD CONSTRAINT users_pkey PRIMARY KEY (id);
-
-
---
--- Name: users users_username_key; Type: CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.users
-    ADD CONSTRAINT users_username_key UNIQUE (username);
+ALTER TABLE ONLY public.ratings_reviews
+    ADD CONSTRAINT "UQ_e8bef70d6ae75899c8de2bdf7ac" UNIQUE (service_request_id);
 
 
 --
--- Name: idx_localities_geometry; Type: INDEX; Schema: public; Owner: servemee_user
+-- Name: countries UQ_fa1376321185575cf2226b1491d; Type: CONSTRAINT; Schema: public; Owner: servemee_user
 --
 
-CREATE INDEX idx_localities_geometry ON public.localities USING gist (polygon_geometry);
-
-
---
--- Name: idx_ratings_reviews_provider_id; Type: INDEX; Schema: public; Owner: servemee_user
---
-
-CREATE INDEX idx_ratings_reviews_provider_id ON public.ratings_reviews USING btree (service_provider_id);
+ALTER TABLE ONLY public.countries
+    ADD CONSTRAINT "UQ_fa1376321185575cf2226b1491d" UNIQUE (name);
 
 
 --
--- Name: idx_service_requests_consumer_id; Type: INDEX; Schema: public; Owner: servemee_user
+-- Name: states UQ_fe52f02449eaf27be2b2cb7acda; Type: CONSTRAINT; Schema: public; Owner: servemee_user
 --
 
-CREATE INDEX idx_service_requests_consumer_id ON public.service_requests USING btree (consumer_id);
-
-
---
--- Name: idx_service_requests_location; Type: INDEX; Schema: public; Owner: servemee_user
---
-
-CREATE INDEX idx_service_requests_location ON public.service_requests USING gist (requested_at_location);
+ALTER TABLE ONLY public.states
+    ADD CONSTRAINT "UQ_fe52f02449eaf27be2b2cb7acda" UNIQUE (name);
 
 
 --
--- Name: idx_service_requests_service_provider_id; Type: INDEX; Schema: public; Owner: servemee_user
+-- Name: service_provider_localities FK_0e7314e9e91cbf8188807543d5c; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
 --
 
-CREATE INDEX idx_service_requests_service_provider_id ON public.service_requests USING btree (service_provider_id);
-
-
---
--- Name: idx_service_requests_status; Type: INDEX; Schema: public; Owner: servemee_user
---
-
-CREATE INDEX idx_service_requests_status ON public.service_requests USING btree (status);
+ALTER TABLE ONLY public.service_provider_localities
+    ADD CONSTRAINT "FK_0e7314e9e91cbf8188807543d5c" FOREIGN KEY (service_provider_id) REFERENCES public.service_providers(user_id) ON DELETE CASCADE;
 
 
 --
--- Name: idx_users_firebase_uid; Type: INDEX; Schema: public; Owner: servemee_user
+-- Name: bookings FK_12a0a22c64de5ca379662109301; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
 --
 
-CREATE INDEX idx_users_firebase_uid ON public.users USING btree (firebase_uid);
-
-
---
--- Name: idx_users_phone_number; Type: INDEX; Schema: public; Owner: servemee_user
---
-
-CREATE INDEX idx_users_phone_number ON public.users USING btree (phone_number);
+ALTER TABLE ONLY public.bookings
+    ADD CONSTRAINT "FK_12a0a22c64de5ca379662109301" FOREIGN KEY (service_provider_id) REFERENCES public.service_providers(user_id) ON DELETE RESTRICT;
 
 
 --
--- Name: idx_users_role; Type: INDEX; Schema: public; Owner: servemee_user
+-- Name: districts FK_18b176b7f592f3a1c55d5e43a87; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
 --
 
-CREATE INDEX idx_users_role ON public.users USING btree (role);
+ALTER TABLE ONLY public.districts
+    ADD CONSTRAINT "FK_18b176b7f592f3a1c55d5e43a87" FOREIGN KEY (state_id) REFERENCES public.states(id) ON DELETE CASCADE;
 
 
 --
@@ -547,15 +600,87 @@ CREATE INDEX idx_users_role ON public.users USING btree (role);
 --
 
 ALTER TABLE ONLY public.bookings
-    ADD CONSTRAINT "FK_26cb1abfe7ec7479360c8977f8c" FOREIGN KEY (consumer_id) REFERENCES public.users(id);
+    ADD CONSTRAINT "FK_26cb1abfe7ec7479360c8977f8c" FOREIGN KEY (consumer_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 
 --
--- Name: services FK_8b619ef0a4fe392dbde07eee1e2; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
+-- Name: services FK_298e6fc7011a043cf570557f4ee; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
 --
 
 ALTER TABLE ONLY public.services
-    ADD CONSTRAINT "FK_8b619ef0a4fe392dbde07eee1e2" FOREIGN KEY ("providerId") REFERENCES public.users(id) ON DELETE CASCADE;
+    ADD CONSTRAINT "FK_298e6fc7011a043cf570557f4ee" FOREIGN KEY (service_provider_id) REFERENCES public.service_providers(user_id) ON DELETE CASCADE;
+
+
+--
+-- Name: service_requests FK_2c0b2ee39608f22fcd6a9dd9770; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.service_requests
+    ADD CONSTRAINT "FK_2c0b2ee39608f22fcd6a9dd9770" FOREIGN KEY (service_provider_id) REFERENCES public.service_providers(user_id) ON DELETE SET NULL;
+
+
+--
+-- Name: service_providers FK_2cc7c52b39288cadfad8a0ad63c; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.service_providers
+    ADD CONSTRAINT "FK_2cc7c52b39288cadfad8a0ad63c" FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: localities FK_3d939c06ffb142e4bf8ac99bf6c; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.localities
+    ADD CONSTRAINT "FK_3d939c06ffb142e4bf8ac99bf6c" FOREIGN KEY (district_id) REFERENCES public.districts(id) ON DELETE CASCADE;
+
+
+--
+-- Name: service_requests FK_4608c7dc7c2a928d566741952ed; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.service_requests
+    ADD CONSTRAINT "FK_4608c7dc7c2a928d566741952ed" FOREIGN KEY (locality_id) REFERENCES public.localities(id) ON DELETE SET NULL;
+
+
+--
+-- Name: services FK_70d400878cfc6cf1a8dcfcdcf66; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.services
+    ADD CONSTRAINT "FK_70d400878cfc6cf1a8dcfcdcf66" FOREIGN KEY (service_type_id) REFERENCES public.service_types(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: ratings_reviews FK_71d5183c11b7cd8588b9f04881a; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.ratings_reviews
+    ADD CONSTRAINT "FK_71d5183c11b7cd8588b9f04881a" FOREIGN KEY (consumer_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: ratings_reviews FK_760ff71aa646ebac4904f5425a8; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.ratings_reviews
+    ADD CONSTRAINT "FK_760ff71aa646ebac4904f5425a8" FOREIGN KEY (service_provider_id) REFERENCES public.service_providers(user_id) ON DELETE CASCADE;
+
+
+--
+-- Name: service_provider_localities FK_af9e647dbb4d4bf3f99f72c20a0; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.service_provider_localities
+    ADD CONSTRAINT "FK_af9e647dbb4d4bf3f99f72c20a0" FOREIGN KEY (locality_id) REFERENCES public.localities(id) ON DELETE CASCADE;
+
+
+--
+-- Name: service_types FK_c3f5113950eef9654b8fcb13f9e; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.service_types
+    ADD CONSTRAINT "FK_c3f5113950eef9654b8fcb13f9e" FOREIGN KEY (category_id) REFERENCES public.service_categories(id) ON DELETE RESTRICT;
 
 
 --
@@ -563,103 +688,39 @@ ALTER TABLE ONLY public.services
 --
 
 ALTER TABLE ONLY public.bookings
-    ADD CONSTRAINT "FK_df22e2beaabc33a432b4f65e3c2" FOREIGN KEY (service_id) REFERENCES public.services(id);
+    ADD CONSTRAINT "FK_df22e2beaabc33a432b4f65e3c2" FOREIGN KEY (service_id) REFERENCES public.services(id) ON DELETE RESTRICT;
 
 
 --
--- Name: provider_services provider_services_service_provider_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.provider_services
-    ADD CONSTRAINT provider_services_service_provider_id_fkey FOREIGN KEY (service_provider_id) REFERENCES public.service_providers(user_id) ON DELETE CASCADE;
-
-
---
--- Name: provider_services provider_services_service_type_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.provider_services
-    ADD CONSTRAINT provider_services_service_type_id_fkey FOREIGN KEY (service_type_id) REFERENCES public.service_types(id) ON DELETE CASCADE;
-
-
---
--- Name: ratings_reviews ratings_reviews_consumer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.ratings_reviews
-    ADD CONSTRAINT ratings_reviews_consumer_id_fkey FOREIGN KEY (consumer_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-
---
--- Name: ratings_reviews ratings_reviews_service_provider_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.ratings_reviews
-    ADD CONSTRAINT ratings_reviews_service_provider_id_fkey FOREIGN KEY (service_provider_id) REFERENCES public.service_providers(user_id) ON DELETE CASCADE;
-
-
---
--- Name: ratings_reviews ratings_reviews_service_request_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.ratings_reviews
-    ADD CONSTRAINT ratings_reviews_service_request_id_fkey FOREIGN KEY (service_request_id) REFERENCES public.service_requests(id) ON DELETE CASCADE;
-
-
---
--- Name: service_provider_localities service_provider_localities_locality_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.service_provider_localities
-    ADD CONSTRAINT service_provider_localities_locality_id_fkey FOREIGN KEY (locality_id) REFERENCES public.localities(id) ON DELETE CASCADE;
-
-
---
--- Name: service_provider_localities service_provider_localities_service_provider_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.service_provider_localities
-    ADD CONSTRAINT service_provider_localities_service_provider_id_fkey FOREIGN KEY (service_provider_id) REFERENCES public.service_providers(user_id) ON DELETE CASCADE;
-
-
---
--- Name: service_providers service_providers_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.service_providers
-    ADD CONSTRAINT service_providers_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-
---
--- Name: service_requests service_requests_consumer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
+-- Name: service_requests FK_e0b22dfd82074364f7cf39de64d; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
 --
 
 ALTER TABLE ONLY public.service_requests
-    ADD CONSTRAINT service_requests_consumer_id_fkey FOREIGN KEY (consumer_id) REFERENCES public.users(id) ON DELETE CASCADE;
+    ADD CONSTRAINT "FK_e0b22dfd82074364f7cf39de64d" FOREIGN KEY (service_type_id) REFERENCES public.service_types(id) ON DELETE RESTRICT;
 
 
 --
--- Name: service_requests service_requests_service_provider_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
+-- Name: ratings_reviews FK_e8bef70d6ae75899c8de2bdf7ac; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.ratings_reviews
+    ADD CONSTRAINT "FK_e8bef70d6ae75899c8de2bdf7ac" FOREIGN KEY (service_request_id) REFERENCES public.service_requests(id) ON DELETE CASCADE;
+
+
+--
+-- Name: states FK_f3bbd0bc19bb6d8a887add08461; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
+--
+
+ALTER TABLE ONLY public.states
+    ADD CONSTRAINT "FK_f3bbd0bc19bb6d8a887add08461" FOREIGN KEY (country_id) REFERENCES public.countries(id) ON DELETE CASCADE;
+
+
+--
+-- Name: service_requests FK_fd51374e987547873f539655406; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
 --
 
 ALTER TABLE ONLY public.service_requests
-    ADD CONSTRAINT service_requests_service_provider_id_fkey FOREIGN KEY (service_provider_id) REFERENCES public.service_providers(user_id) ON DELETE SET NULL;
-
-
---
--- Name: service_requests service_requests_service_type_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.service_requests
-    ADD CONSTRAINT service_requests_service_type_id_fkey FOREIGN KEY (service_type_id) REFERENCES public.service_types(id) ON DELETE RESTRICT;
-
-
---
--- Name: service_types service_types_category_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: servemee_user
---
-
-ALTER TABLE ONLY public.service_types
-    ADD CONSTRAINT service_types_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.service_categories(id) ON DELETE CASCADE;
+    ADD CONSTRAINT "FK_fd51374e987547873f539655406" FOREIGN KEY (consumer_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 
 --

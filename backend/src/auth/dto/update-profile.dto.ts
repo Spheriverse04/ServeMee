@@ -2,10 +2,11 @@
 import { IsString, IsOptional, IsUrl, IsEmail, IsPhoneNumber, MaxLength } from 'class-validator';
 
 export class UpdateProfileDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(100) // Adjust max length as per your design
-  fullName?: string;
+  // REMOVED: fullName as it does not exist in the database schema.
+  // @IsOptional()
+  // @IsString()
+  // @MaxLength(100)
+  // fullName?: string;
 
   @IsOptional()
   @IsString()
@@ -17,10 +18,15 @@ export class UpdateProfileDto {
   email?: string;
 
   @IsOptional()
-  @IsPhoneNumber() // REMOVED 'ZZ' - This will now validate any phone number format generically
+  @IsPhoneNumber()
   phoneNumber?: string;
 
   @IsOptional()
   @IsUrl()
   profilePictureUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100) // Assuming displayName can be updated
+  displayName?: string; // Added displayName if you want it to be updatable
 }

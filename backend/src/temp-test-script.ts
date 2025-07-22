@@ -17,10 +17,11 @@ async function testUserRepositoryCreate() {
     const testUser = userRepository.create({
       firebaseUid: 'temp-test-firebase-uid',
       email: 'temp.test@example.com',
-      fullName: 'Temp Test User',
-      role: UserRole.CONSUMER, // Changed 'consumer' to UserRole.CONSUMER
+      // REMOVED: fullName as it does not exist in the User entity or database schema.
+      // fullName: 'Temp Test User',
+      role: UserRole.CONSUMER,
       isActive: true,
-      displayName: 'Temp Test Display', // Added displayName as it's nullable but good practice to provide
+      displayName: 'Temp Test Display', // This is correct and aligns with your schema
     });
     console.log('Temporary user created successfully (in memory):', testUser);
     // await userRepository.save(testUser); // Uncomment to save to DB for testing
