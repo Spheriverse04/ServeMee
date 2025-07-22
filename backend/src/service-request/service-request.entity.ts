@@ -12,9 +12,9 @@ import {
 } from 'typeorm';
 import { User } from '../user/user.entity';
 import { ServiceType } from '../service-type/service-type.entity';
-import { Point } from 'geojson'; // Import Point type from geojson
+import { Locality } from '../locality/locality.entity';
 import { RatingReview } from '../rating-review/rating-review.entity';
-import { ServiceProvider } from '../service-provider/service-provider.entity'; // ADD this import
+import { ServiceProvider } from '../service-provider/service-provider.entity';
 
 export enum ServiceRequestStatus {
   PENDING = 'PENDING',
@@ -33,7 +33,6 @@ export class ServiceRequest {
   @Column({ name: 'service_type_id', type: 'uuid', nullable: false })
   serviceTypeId: string;
 
-  // Correct this line: Ensure ServiceType has a 'serviceRequests' property (see next section)
   @ManyToOne(() => ServiceType, serviceType => serviceType.serviceRequests, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'service_type_id' })
   serviceType: ServiceType;
@@ -42,29 +41,28 @@ export class ServiceRequest {
   @Index()
   consumerId: string;
 
-  @ManyToOne(() => User, user => user.requestedServices, { onDelete: 'CASCADE' })
+  @ManyToOne(() => User, user => user.requestedServices, { onDelete: 'RESTRICT' }) // <--- UPDATED THIS LINE
   @JoinColumn({ name: 'consumer_id' })
   consumer: User;
 
-  @Column({ name: 'service_provider_id', type: 'uuid', nullable: true }) // Nullable due to SET NULL on delete
+  @Column({ name: 'service_provider_id', type: 'uuid', nullable: true })
   @Index()
   serviceProviderId: string | null;
 
-  @ManyToOne(() => ServiceProvider, serviceProvider => serviceProvider.serviceRequests, { onDelete: 'SET NULL' })
+  @ManyToOne(() => ServiceProvider, serviceProvider => serviceProvider.serviceRequests, { onDelete: 'RESTRICT', nullable: true })
   @JoinColumn({ name: 'service_provider_id' })
-  serviceProvider: ServiceProvider | null; // Allow null for serviceProvider relationship
+  serviceProvider: ServiceProvider | null;
 
-  @Column({
-    type: 'enum',
-    enum: ServiceRequestStatus,
-    default: ServiceRequestStatus.PENDING,
-    nullable: false,
-  })
+  @Column({ type: 'enum', enum: ServiceRequestStatus, default: ServiceRequestStatus.PENDING, nullable: false })
   status: ServiceRequestStatus;
 
-  @Column({ name: 'requested_at_location', type: 'geometry', spatialFeatureType: 'Point', srid: 4326, nullable: true })
-  @Index({ spatial: true })
-  requestedAtLocation: Point; // Use Point type from geojson
+  @Column({ name: 'locality_id', type: 'uuid', nullable: true })
+  @Index()
+  localityId: string | null;
+
+  @ManyToOne(() => Locality, locality => locality.serviceRequests, { onDelete: 'RESTRICT', nullable: true })
+  @JoinColumn({ name: 'locality_id' })
+  locality: Locality | null;
 
   @Column({ name: 'address', type: 'text', nullable: true })
   address: string | null;
@@ -75,8 +73,8 @@ export class ServiceRequest {
   @Column({ name: 'scheduled_time', type: 'timestamp with time zone', nullable: true })
   scheduledTime: Date | null;
 
-  @Column({ name: 'otp_code', type: 'varchar', length: 10, nullable: true }) // Store OTP
-  otpCode: string | null; // Allow null after verification
+  @Column({ name: 'otp_code', type: 'varchar', length: 10, nullable: true })
+  otpCode: string | null;
 
   @Column({ name: 'total_cost', type: 'decimal', precision: 10, scale: 2, nullable: true })
   totalCost: number | null;
@@ -93,12 +91,9 @@ export class ServiceRequest {
   @OneToMany(() => RatingReview, ratingReview => ratingReview.serviceRequest)
   reviews: RatingReview[];
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamp with time zone', default: () => 'CURRENT_TIMESTAMP' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamp with time zone' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamp with time zone', default: () => 'CURRENT_TIMESTAMP' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamp with time zone' })
   updatedAt: Date;
 }
-
-
-

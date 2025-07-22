@@ -32,15 +32,6 @@ export class LocalityController {
     return this.localityService.findByName(name);
   }
 
-  @Get('by-location')
-  @Public()
-  findByLocation(
-    @Query('lat') latitude: number,
-    @Query('lng') longitude: number,
-  ) {
-    return this.localityService.findByPoint(latitude, longitude);
-  }
-
   @Get(':id')
   @Public()
   findOne(@Param('id') id: string) {

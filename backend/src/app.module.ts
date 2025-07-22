@@ -1,4 +1,4 @@
-// servemee/backend/src/app.module.ts
+// backend/src/app.module.ts
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config'; // Import ConfigModule
@@ -23,6 +23,19 @@ import { ServiceTypeModule } from './service-type/service-type.module';
 import { ServiceRequestModule } from './service-request/service-request.module';
 import { RatingReviewModule } from './rating-review/rating-review.module';
 
+// --- NEW IMPORTS FOR GEOGRAPHICAL HIERARCHY ---
+import { Country } from './country/country.entity';
+import { State } from './state/state.entity';
+import { District } from './district/district.entity';
+import { CountryModule } from './country/country.module';
+import { StateModule } from './state/state.module';
+import { DistrictModule } from './district/district.module';
+// --- END NEW IMPORTS ---
+
+// Assuming dataSourceOptions is not directly used here but TypeOrmModule.forRoot uses direct config
+// If you have a separate data-source.ts that exports dataSourceOptions, ensure it's imported or its content is here.
+// Example: import { dataSourceOptions } from './data-source';
+
 @Module({
   imports: [
     // Load environment variables
@@ -39,14 +52,19 @@ import { RatingReviewModule } from './rating-review/rating-review.module';
       database: process.env.DATABASE_NAME,
       entities: [
         User,
-        ServiceProvider, // <-- Comma added here
+        ServiceProvider,
         Service,
         Booking,
         Locality,
         ServiceCategory,
         ServiceType,
         ServiceRequest,
-        RatingReview
+        RatingReview,
+        // --- ADD NEW ENTITIES HERE ---
+        Country,
+        State,
+        District,
+        // --- END NEW ENTITIES ---
       ],
       synchronize: false, // Set to false in production! Use migrations.
       logging: true, // Enable logging for debugging
@@ -62,6 +80,11 @@ import { RatingReviewModule } from './rating-review/rating-review.module';
     ServiceTypeModule,
     ServiceRequestModule,
     RatingReviewModule,
+    // --- ADD NEW MODULES HERE ---
+    CountryModule,
+    StateModule,
+    DistrictModule,
+    // --- END NEW MODULES ---
   ],
   controllers: [AppController],
   providers: [AppService, FirebaseService],

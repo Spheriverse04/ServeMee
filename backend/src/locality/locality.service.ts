@@ -64,15 +64,4 @@ export class LocalityService {
       .orderBy('locality.name', 'ASC')
       .getMany();
   }
-
-  async findByPoint(latitude: number, longitude: number): Promise<Locality[]> {
-    return this.localityRepository
-      .createQueryBuilder('locality')
-      .where('ST_Contains(locality.polygonGeometry, ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326))', {
-        longitude,
-        latitude,
-      })
-      .andWhere('locality.isActive = :isActive', { isActive: true })
-      .getMany();
-  }
 }

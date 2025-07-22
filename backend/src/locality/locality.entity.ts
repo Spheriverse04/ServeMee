@@ -1,7 +1,8 @@
 // backend/src/locality/locality.entity.ts
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index, ManyToMany } from 'typeorm';
-// THIS LINE MUST BE REMOVED: import { User } from '../user/user.entity';
-import { ServiceProvider } from '../service-provider/service-provider.entity'; // THIS LINE MUST BE PRESENT
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToMany, OneToMany, ManyToOne, JoinColumn } from 'typeorm';
+import { ServiceProvider } from '../service-provider/service-provider.entity';
+import { ServiceRequest } from '../service-request/service-request.entity';
+import { District } from '../district/district.entity'; // <--- ADD THIS IMPORT
 
 @Entity('localities')
 export class Locality {
@@ -11,14 +12,14 @@ export class Locality {
   @Column({ type: 'varchar', length: 255, unique: true, nullable: false })
   name: string;
 
-  @Column({
-    type: 'geometry',
-    spatialFeatureType: 'Polygon',
-    srid: 4326,
-    nullable: false
-  })
-  @Index({ spatial: true })
-  polygonGeometry: string; // PostGIS geometry data
+  // --- ADD THESE LINES FOR DISTRICT RELATIONSHIP ---
+  @Column({ name: 'district_id', type: 'uuid', nullable: true }) // Assuming it can be nullable for now, adjust as per your business logic
+  districtId: string | null;
+
+  @ManyToOne(() => District, district => district.localities, { onDelete: 'RESTRICT', nullable: true })
+  @JoinColumn({ name: 'district_id' })
+  district: District | null;
+  // --- END ADDITIONS ---
 
   @Column({ type: 'text', nullable: true })
   description: string;
@@ -26,10 +27,11 @@ export class Locality {
   @Column({ name: 'is_active', type: 'boolean', default: true, nullable: false })
   isActive: boolean;
 
-  // Many-to-Many relationship with Service Providers
-  // THIS MUST REFERENCE ServiceProvider, NOT User
   @ManyToMany(() => ServiceProvider, serviceProvider => serviceProvider.operationalLocalities)
-  serviceProviders: ServiceProvider[]; // THIS MUST BE ServiceProvider[], NOT User[]
+  serviceProviders: ServiceProvider[];
+
+  @OneToMany(() => ServiceRequest, serviceRequest => serviceRequest.locality)
+  serviceRequests: ServiceRequest[];
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamp with time zone' })
   createdAt: Date;

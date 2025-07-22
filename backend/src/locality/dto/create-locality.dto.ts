@@ -7,9 +7,8 @@ export class CreateLocalityDto {
   @MaxLength(255)
   name: string;
 
-  @IsString()
-  @IsNotEmpty()
-  polygonGeometry: string; // GeoJSON or WKT format
+  // Removed polygonGeometry property
+  // polygonGeometry: string; // GeoJSON or WKT format
 
   @IsOptional()
   @IsString()

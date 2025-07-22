@@ -10,7 +10,13 @@ import { ServiceCategory } from './service-category/service-category.entity';
 import { ServiceType } from './service-type/service-type.entity';
 import { ServiceRequest } from './service-request/service-request.entity';
 import { RatingReview } from './rating-review/rating-review.entity';
-import { ServiceProvider } from './service-provider/service-provider.entity'; // Import ServiceProvider
+import { ServiceProvider } from './service-provider/service-provider.entity';
+
+// --- NEW IMPORTS FOR GEOGRAPHICAL HIERARCHY ---
+import { Country } from './country/country.entity';
+import { State } from './state/state.entity';
+import { District } from './district/district.entity';
+// --- END NEW IMPORTS ---
 
 config();
 
@@ -30,7 +36,13 @@ export const AppDataSource = new DataSource({
     ServiceType,
     ServiceRequest,
     RatingReview,
-    ServiceProvider // Add ServiceProvider here
+    ServiceProvider, // ServiceProvider is already correctly added here
+
+    // --- ADD NEW ENTITIES HERE ---
+    Country,
+    State,
+    District,
+    // --- END NEW ENTITIES ---
   ],
   migrations: [__dirname + '/migrations/**/*.ts'],
   synchronize: false,
