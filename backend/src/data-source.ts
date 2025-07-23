@@ -1,4 +1,4 @@
-// backend/src/data-source.ts (Updated)
+// backend/src/data-source.ts
 import 'reflect-metadata';
 import { DataSource } from 'typeorm';
 import { config } from 'dotenv';
@@ -18,15 +18,16 @@ import { State } from './state/state.entity';
 import { District } from './district/district.entity';
 // --- END NEW IMPORTS ---
 
-config();
+config(); // Load environment variables from .env file
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
-  host: process.env.DATABASE_HOST!,
-  port: parseInt(process.env.DATABASE_PORT!, 10),
-  username: process.env.DATABASE_USERNAME!,
-  password: process.env.DATABASE_PASSWORD!,
-  database: process.env.DATABASE_NAME!,
+  // Provide fallback empty strings or default values instead of '!'
+  host: process.env.DATABASE_HOST || 'localhost', // Provide a sensible default or ensure .env is loaded
+  port: parseInt(process.env.DATABASE_PORT || '5432', 10), // Default to 5432 if not set
+  username: process.env.DATABASE_USERNAME || 'postgres', // Default username
+  password: process.env.DATABASE_PASSWORD || 'postgres', // Default password
+  database: process.env.DATABASE_NAME || 'servemee_db', // Default database name
   entities: [
     User,
     Service,
@@ -36,15 +37,12 @@ export const AppDataSource = new DataSource({
     ServiceType,
     ServiceRequest,
     RatingReview,
-    ServiceProvider, // ServiceProvider is already correctly added here
-
-    // --- ADD NEW ENTITIES HERE ---
+    ServiceProvider,
     Country,
     State,
     District,
-    // --- END NEW ENTITIES ---
   ],
-  migrations: [__dirname + '/migrations/**/*.ts'],
-  synchronize: false,
-  logging: ['query', 'error'],
+  migrations: [__dirname + '/migrations/**/*.ts'], // Ensure this path is correct for your migrations
+  synchronize: false, // Keep this false for production, rely on migrations
+  logging: ['query', 'error'], // Log SQL queries and errors
 });

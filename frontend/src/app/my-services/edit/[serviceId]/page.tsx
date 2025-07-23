@@ -1,17 +1,35 @@
 // frontend/src/app/my-services/edit/[serviceId]/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+
+// Define interfaces for better type safety
+interface ServiceType {
+  id: string;
+  name: string;
+  description?: string;
+  baseFareType: string;
+}
+
+interface ServiceCategory {
+  id: string;
+  name: string;
+  description?: string;
+  iconUrl?: string;
+  serviceTypes?: ServiceType[]; // Service types might be included when fetching categories
+}
 
 interface Service {
   id: string;
   name: string;
   description: string;
   price: number;
-  category?: string;
+  // category?: string; // This might be a string name, but we need categoryId for backend - REMOVED
+  categoryId: string; // Add categoryId
+  serviceTypeId: string; // Add serviceTypeId
   isActive: boolean;
-  imageUrl?: string; // Add imageUrl to the interface
+  imageUrl?: string;
 }
 
 export default function EditServicePage() {
@@ -21,16 +39,80 @@ export default function EditServicePage() {
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [price, setPrice] = useState(''); // Use string for input, convert later
-  const [category, setCategory] = useState('');
+  const [price, setPrice] = useState('');
+  // const [category, setCategory] = useState(''); // This state might still be useful for initial display if backend sends category name directly - REMOVED
   const [isActive, setIsActive] = useState(true);
-  const [imageUrl, setImageUrl] = useState<string | null>(null); // State to hold existing image URL
-  const [imageFile, setImageFile] = useState<File | null>(null); // State to hold new image file
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+
+  // New states for Category and Service Type selection
+  const [allCategories, setAllCategories] = useState<ServiceCategory[]>([]);
+  const [availableServiceTypes, setAvailableServiceTypes] = useState<ServiceType[]>([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
+  const [selectedServiceTypeId, setSelectedServiceTypeId] = useState<string>('');
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
+
+  // Function to fetch all service categories
+  const fetchAllCategories = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('firebaseIdToken');
+      if (!token) {
+        throw new Error('Authentication token not found.');
+      }
+      const response = await fetch(`http://localhost:3000/service-categories`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to fetch service categories.');
+      }
+      const data = await response.json();
+      setAllCategories(data);
+    } catch (err: any) {
+      console.error('Error fetching all categories:', err);
+      setError(err.message || 'An unexpected error occurred while fetching categories.');
+    }
+  }, []);
+
+  // Function to fetch service types based on category ID
+  const fetchServiceTypesByCategory = useCallback(async (categoryId: string) => {
+    if (!categoryId) {
+      setAvailableServiceTypes([]);
+      return;
+    }
+    try {
+      const token = localStorage.getItem('firebaseIdToken');
+      if (!token) {
+        throw new Error('Authentication token not found.');
+      }
+      const response = await fetch(`http://localhost:3000/service-types/by-category/${categoryId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to fetch service types.');
+      }
+      const data = await response.json();
+      setAvailableServiceTypes(data);
+    } catch (err: any) {
+      console.error('Error fetching service types by category:', err);
+      setError(err.message || 'An unexpected error occurred while fetching service types.');
+      setAvailableServiceTypes([]); // Clear types on error
+    }
+  }, []);
+
 
   useEffect(() => {
     if (!serviceId) {
@@ -50,7 +132,8 @@ export default function EditServicePage() {
           return;
         }
 
-        const response = await fetch(`http://localhost:3000/services/${serviceId}`, {
+        // Fetch service details
+        const serviceResponse = await fetch(`http://localhost:3000/services/${serviceId}`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -58,23 +141,33 @@ export default function EditServicePage() {
           },
         });
 
-        if (!response.ok) {
-          if (response.status === 404) {
+        if (!serviceResponse.ok) {
+          if (serviceResponse.status === 404) {
             throw new Error('Service not found or you do not have permission to edit it.');
           }
-          const errorData = await response.json();
+          const errorData = await serviceResponse.json();
           throw new Error(errorData.message || 'Failed to fetch service details.');
         }
 
-        const data = await response.json();
-        const service: Service = data.service; // Assuming response wraps service in an object
+        const data = await serviceResponse.json();
+        const service: Service = data.service;
 
         setName(service.name);
         setDescription(service.description);
-        setPrice(service.price.toString()); // Convert number back to string for input field
-        setCategory(service.category || '');
+        setPrice(service.price != null && !isNaN(Number(service.price)) ? service.price.toString() : '');
+        // setCategory(service.category || ''); // Keep if you display category name - REMOVED
         setIsActive(service.isActive);
-        setImageUrl(service.imageUrl || null); // Set existing image URL
+        setImageUrl(service.imageUrl || null);
+
+        // Set selected category and service type from fetched service
+        if (service.categoryId) {
+          setSelectedCategoryId(service.categoryId);
+          // Immediately fetch service types for the pre-selected category
+          await fetchServiceTypesByCategory(service.categoryId);
+        }
+        if (service.serviceTypeId) {
+          setSelectedServiceTypeId(service.serviceTypeId);
+        }
 
       } catch (err: any) {
         console.error('Error fetching service details:', err);
@@ -84,18 +177,24 @@ export default function EditServicePage() {
       }
     };
 
+    fetchAllCategories(); // Fetch all categories when the component mounts
     fetchServiceDetails();
-  }, [serviceId, router]);
+  }, [serviceId, router, fetchAllCategories, fetchServiceTypesByCategory]); // Include dependencies
+
+  // Effect to fetch service types whenever selectedCategoryId changes
+  useEffect(() => {
+    if (selectedCategoryId) {
+      fetchServiceTypesByCategory(selectedCategoryId);
+      setSelectedServiceTypeId(''); // Reset service type when category changes
+    } else {
+      setAvailableServiceTypes([]);
+      setSelectedServiceTypeId('');
+    }
+  }, [selectedCategoryId, fetchServiceTypesByCategory]);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setImageFile(e.target.files[0]);
-      // Optional: Display a preview of the new image
-      // const reader = new FileReader();
-      // reader.onloadend = () => {
-      //   setImageUrl(reader.result as string);
-      // };
-      // reader.readAsDataURL(e.target.files[0]);
     } else {
       setImageFile(null);
     }
@@ -110,6 +209,18 @@ export default function EditServicePage() {
     // Basic client-side validation
     if (!name.trim() || !description.trim() || price === '') {
       setError('Please fill in all required fields (Name, Description, Price).');
+      setSubmitting(false);
+      return;
+    }
+
+    if (!selectedCategoryId) {
+      setError('Please select a Service Category.');
+      setSubmitting(false);
+      return;
+    }
+
+    if (!selectedServiceTypeId) {
+      setError('Please select a Service Type.');
       setSubmitting(false);
       return;
     }
@@ -132,24 +243,25 @@ export default function EditServicePage() {
       const formData = new FormData();
       formData.append('name', name);
       formData.append('description', description);
-      formData.append('price', parsedPrice.toString()); // Ensure it's a string for FormData
+      //formData.append('price', parsedPrice.toString());
       formData.append('isActive', isActive.toString());
-      if (category.trim()) {
-        formData.append('category', category.trim());
-      }
+      formData.append('baseFare', parsedPrice.toString()); 
+      //formData.append('categoryId', selectedCategoryId); // Append selected category ID
+      formData.append('serviceTypeId', selectedServiceTypeId); // Append selected service type ID
+
+      // if (category.trim()) { // If you still use `category` for the name, append it - REMOVED
+      //   formData.append('category', category.trim());
+      // }
       if (imageFile) {
-        formData.append('image', imageFile); // Append the new image file
+        formData.append('image', imageFile);
       }
 
       const response = await fetch(`http://localhost:3000/services/${serviceId}`, {
         method: 'PATCH',
         headers: {
           Authorization: `Bearer ${token}`,
-          // DO NOT set 'Content-Type': 'multipart/form-data' here.
-          // The browser will set it automatically with the correct boundary
-          // when you send FormData.
         },
-        body: formData, // Send FormData
+        body: formData,
       });
 
       if (!response.ok) {
@@ -177,7 +289,7 @@ export default function EditServicePage() {
     );
   }
 
-  if (error && !formSuccess) { // Show general error if no form success message
+  if (error && !formSuccess) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
         <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md text-center">
@@ -208,7 +320,7 @@ export default function EditServicePage() {
             <input
               type="text"
               id="name"
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm text-gray-900"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
@@ -223,7 +335,7 @@ export default function EditServicePage() {
             <textarea
               id="description"
               rows={4}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm text-gray-900"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               required
@@ -239,7 +351,7 @@ export default function EditServicePage() {
               type="number"
               id="price"
               step="0.01"
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm text-gray-900"
               value={price}
               onChange={(e) => setPrice(e.target.value)}
               required
@@ -247,19 +359,51 @@ export default function EditServicePage() {
             />
           </div>
 
+          {/* New Service Category Dropdown */}
           <div>
-            <label htmlFor="category" className="block text-sm font-medium text-gray-700">
-              Category (Optional):
+            <label htmlFor="serviceCategory" className="block text-sm font-medium text-gray-700">
+              Service Category:
             </label>
-            <input
-              type="text"
-              id="category"
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              disabled={submitting}
-            />
+            <select
+              id="serviceCategory"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm text-gray-900"
+              value={selectedCategoryId}
+              onChange={(e) => setSelectedCategoryId(e.target.value)}
+              required
+              disabled={submitting || allCategories.length === 0}
+            >
+              <option value="">Select a category</option>
+              {allCategories.map((cat) => (
+                <option key={cat.id} value={cat.id}>
+                  {cat.name}
+                </option>
+              ))}
+            </select>
           </div>
+
+          {/* New Service Type Dropdown (conditionally rendered) */}
+          {selectedCategoryId && (
+            <div>
+              <label htmlFor="serviceType" className="block text-sm font-medium text-gray-700">
+                Service Type:
+              </label>
+              <select
+                id="serviceType"
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm text-gray-900"
+                value={selectedServiceTypeId}
+                onChange={(e) => setSelectedServiceTypeId(e.target.value)}
+                required
+                disabled={submitting || availableServiceTypes.length === 0}
+              >
+                <option value="">Select a service type</option>
+                {availableServiceTypes.map((type) => (
+                  <option key={type.id} value={type.id}>
+                    {type.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Image Upload Field */}
           <div>
@@ -278,12 +422,12 @@ export default function EditServicePage() {
             )}
             {imageFile && ( // Display preview of newly selected image
                 <div className="mb-4">
-                    <p className="text-sm text-gray-600 mb-2">New Image Preview:</p>
-                    <img
-                        src={URL.createObjectURL(imageFile)}
-                        alt="New Service Preview"
-                        className="max-w-full h-40 object-contain border border-gray-300 rounded-md"
-                    />
+                  <p className="text-sm text-gray-600 mb-2">New Image Preview:</p>
+                  <img
+                      src={URL.createObjectURL(imageFile)}
+                      alt="New Service Preview"
+                      className="max-w-full h-40 object-contain border border-gray-300 rounded-md"
+                  />
                 </div>
             )}
             <input
@@ -341,4 +485,3 @@ export default function EditServicePage() {
     </div>
   );
 }
-

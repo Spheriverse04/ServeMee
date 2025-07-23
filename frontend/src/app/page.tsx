@@ -59,7 +59,7 @@ export default function Home() {
                 <div className="text-gray-600">Services Delivered</div>
               </div>
               <div className="text-center">
-                <div className="text-3xl font-bold text-green-600 mb-2">4.8★</div>
+                <div className="text-3xl font-bold text-green-600 mb-2">4.5★</div>
                 <div className="text-gray-600">Average Rating</div>
               </div>
               <div className="text-center">

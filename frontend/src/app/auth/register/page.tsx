@@ -1,22 +1,21 @@
-// frontend/src/app/auth/register/page.tsx
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useSearchParams } from 'next/navigation';
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { getAuth, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import Link from 'next/link';
-import { app } from '../../../firebaseClient'; // Adjust path if your firebaseClient.ts is elsewhere
+import { app } from '@/firebaseClient';
+
 const auth = getAuth(app);
 
 export default function RegisterPage() {
   const searchParams = useSearchParams();
   const roleFromUrl = searchParams.get('role') as 'consumer' | 'service_provider' | null;
-  
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
-  // Corrected: Initialize with lowercase 'consumer' and define type with lowercase strings
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [role, setRole] = useState<'consumer' | 'service_provider'>(roleFromUrl || 'consumer');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,26 +29,27 @@ export default function RegisterPage() {
     setSuccess(null);
 
     try {
-      // 1. Create user in Firebase Authentication
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user; // Get the user object (contains user.uid)
+      const user = userCredential.user;
 
-      // 2. Get Firebase ID token
+      if (auth.currentUser) {
+        await updateProfile(auth.currentUser, { displayName });
+      }
+
       const idToken = await user.getIdToken();
 
-      // 3. Send user details (including Firebase UID, NOT password) to your NestJS backend
       const backendResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/auth/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`, // Pass Firebase ID token for authentication
+          Authorization: `Bearer ${idToken}`,
         },
         body: JSON.stringify({
           email,
-          // IMPORTANT: Removed 'password' from the body sent to backend
           displayName,
-          role, // This will now send 'consumer' or 'service_provider' (lowercase)
-          firebaseUid: user.uid, // IMPORTANT: Add the Firebase User UID here!
+          role,
+          phoneNumber,
+          firebaseUid: user.uid,
         }),
       });
 
@@ -63,31 +63,26 @@ export default function RegisterPage() {
       setSuccess('Registration successful! Redirecting to login...');
 
       setTimeout(() => {
-        router.push('/auth/email-password'); // Redirect to the login page
+        router.push('/auth/email-password');
       }, 2000);
-
     } catch (err: any) {
       console.error('Registration error:', err.code || err.message);
       let errorMessage = 'An unexpected error occurred during registration.';
       if (err.code) {
         switch (err.code) {
           case 'auth/email-already-in-use':
-            errorMessage = 'The email address is already in use by another account.';
+            errorMessage = 'Email address is already in use.';
             break;
           case 'auth/invalid-email':
-            errorMessage = 'The email address is not valid.';
-            break;
-          case 'auth/operation-not-allowed':
-            errorMessage = 'Email/password accounts are not enabled. Enable it in Firebase Console.';
+            errorMessage = 'Invalid email address.';
             break;
           case 'auth/weak-password':
-            errorMessage = 'The password is too weak.';
+            errorMessage = 'Password is too weak.';
             break;
           default:
             errorMessage = `Registration failed: ${err.message}`;
         }
       } else {
-         // If error is from backend validation, it might be in err.message
         errorMessage = `Registration error: ${err.message}`;
       }
       setError(errorMessage);
@@ -114,92 +109,75 @@ export default function RegisterPage() {
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleRegister}>
           <div className="space-y-4">
-            <div>
-              <label htmlFor="email-address" className="sr-only">
-                Email address
-              </label>
-              <input
-                id="email-address"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                className="appearance-none relative block w-full px-4 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition-all duration-200"
-                placeholder="Email address"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                disabled={loading}
-              />
-            </div>
-            <div>
-              <label htmlFor="password" className="sr-only">
-                Password
-              </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="new-password"
-                required
-                className="appearance-none relative block w-full px-4 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition-all duration-200"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={loading}
-              />
-            </div>
-            <div>
-              <label htmlFor="display-name" className="sr-only">
-                Display Name
-              </label>
-              <input
-                id="display-name"
-                name="displayName"
-                type="text"
-                autoComplete="name"
-                required
-                className="appearance-none relative block w-full px-4 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition-all duration-200"
-                placeholder="Display Name"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                disabled={loading}
-              />
-            </div>
-            <div>
-              <label htmlFor="role" className="sr-only">
-                Role
-              </label>
-              <select
-                id="role"
-                name="role"
-                required
-                className="appearance-none relative block w-full px-4 py-3 border border-gray-300 text-gray-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition-all duration-200"
-                value={role}
-                // Corrected: Cast to lowercase string type
-                onChange={(e) => setRole(e.target.value as 'consumer' | 'service_provider')}
-                disabled={loading}
-              >
-                {/* Corrected: Option values must be lowercase strings to match backend enum */}
-                <option value="consumer">I need services (Consumer)</option>
-                <option value="service_provider">I provide services (Service Provider)</option>
-              </select>
-            </div>
+            <input
+              id="email-address"
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+              className="block w-full px-4 py-3 border border-gray-300 placeholder-gray-500 text-gray-800 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+              placeholder="Email address"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={loading}
+            />
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autoComplete="new-password"
+              required
+              className="block w-full px-4 py-3 border border-gray-300 placeholder-gray-500 text-gray-800 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={loading}
+            />
+            <input
+              id="display-name"
+              name="displayName"
+              type="text"
+              autoComplete="name"
+              required
+              className="block w-full px-4 py-3 border border-gray-300 placeholder-gray-500 text-gray-800 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+              placeholder="Display Name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              disabled={loading}
+            />
+            <input
+              id="phone-number"
+              name="phoneNumber"
+              type="tel"
+              pattern="[0-9]{10}"
+              required
+              title="Phone number must be 10 digits"
+              className="block w-full px-4 py-3 border border-gray-300 placeholder-gray-500 text-gray-800 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+              placeholder="Phone Number"
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(e.target.value)}
+              disabled={loading}
+            />
+            <select
+              id="role"
+              name="role"
+              required
+              className="block w-full px-4 py-3 border border-gray-300 text-gray-800 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+              value={role}
+              onChange={(e) => setRole(e.target.value as 'consumer' | 'service_provider')}
+              disabled={loading}
+            >
+              <option value="consumer">I need services (Consumer)</option>
+              <option value="service_provider">I provide services (Service Provider)</option>
+            </select>
           </div>
 
-          {error && (
-            <div className="p-4 bg-red-50 text-red-700 border border-red-200 rounded-lg text-sm">
-              {error}
-            </div>
-          )}
-          {success && (
-            <div className="p-4 bg-green-50 text-green-700 border border-green-200 rounded-lg text-sm">
-              {success}
-            </div>
-          )}
+          {error && <div className="p-4 bg-red-100 text-red-700 rounded-md text-sm">{error}</div>}
+          {success && <div className="p-4 bg-green-100 text-green-700 rounded-md text-sm">{success}</div>}
 
           <button
             type="submit"
-            className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 transition-all duration-200"
+            className="w-full py-3 px-4 text-white bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg hover:from-indigo-700 hover:to-purple-700 font-medium text-sm disabled:opacity-50"
             disabled={loading}
           >
             {loading ? 'Registering...' : 'Register'}

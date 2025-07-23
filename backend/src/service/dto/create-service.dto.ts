@@ -1,11 +1,11 @@
 // backend/src/service/dto/create-service.dto.ts
-import { IsString, IsNotEmpty, IsNumber, IsOptional, IsBoolean, Min, MaxLength, IsUUID } from 'class-validator';
+import { IsString, IsNotEmpty, IsNumber, IsOptional, IsBoolean, Min, MaxLength, IsUUID, IsUrl } from 'class-validator'; // Added IsUrl
 import { Type } from 'class-transformer';
 
 export class CreateServiceDto {
   @IsString()
   @IsNotEmpty()
-  @MaxLength(255) // Increased max length to match entity definition if needed, or adjust entity.
+  @MaxLength(255)
   name: string;
 
   @IsString()
@@ -16,15 +16,16 @@ export class CreateServiceDto {
   @IsNotEmpty()
   @Min(0)
   @Type(() => Number)
-  baseFare: number; // Renamed from 'price' to 'baseFare'
+  baseFare: number;
 
   @IsOptional()
-  @IsString()
-  imageUrl?: string; // Added imageUrl as per Service entity
+  @IsUrl() // Add IsUrl validator if imageUrl is a URL
+  @IsString() // Ensure it's a string
+  imageUrl?: string | null; // FIX: Allow imageUrl to be null or undefined
 
-  @IsUUID() // Validate as UUID
-  @IsNotEmpty() // Must not be empty
-  serviceTypeId: string; // Added this required field
+  @IsUUID()
+  @IsNotEmpty()
+  serviceTypeId: string;
 
   @IsOptional()
   @IsBoolean()

@@ -1,25 +1,44 @@
-// frontend/src/app/my-services/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
+// --- Interfaces ---
+interface ServiceCategoryFromBackend {
+  id: string;
+  name: string;
+}
+
+interface ServiceTypeFromBackend {
+  id: string;
+  name: string;
+  description?: string;
+  baseFareType: string;
+  category: ServiceCategoryFromBackend;
+}
+
 interface Service {
   id: string;
   name: string;
   description: string;
-  price: number;
-  category?: string;
+  baseFare: number;
   isActive: boolean;
-  imageUrl?: string; // Include imageUrl
+  imageUrl?: string;
+  serviceType: ServiceTypeFromBackend;
+}
+
+interface Locality {
+  id: string;
+  name: string;
 }
 
 export default function MyServicesPage() {
   const [services, setServices] = useState<Service[]>([]);
+  const [localities, setLocalities] = useState<Locality[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [actionMessage, setActionMessage] = useState<string | null>(null); // For success/error messages after actions
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
   const router = useRouter();
 
   const fetchMyServices = async () => {
@@ -34,40 +53,63 @@ export default function MyServicesPage() {
       }
 
       const response = await fetch('http://localhost:3000/services/my-services/list', {
-        method: 'GET',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
       });
 
-      if (!response.ok) {
-        if (response.status === 401 || response.status === 403) {
-          setError('Unauthorized. You may not have permission to view this page or your session expired. Please log in as a Service Provider.');
-          // router.push('/auth/email-password'); // Uncomment if you want to force redirect on 401/403
-          return;
-        }
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to fetch your services.');
-      }
-
       const data = await response.json();
-      setServices(data.services); // Assuming the backend returns an object with a 'services' array
+      const fetchedServices = Array.isArray(data)
+        ? data
+        : Array.isArray(data.services)
+        ? data.services
+        : [];
+
+      const processedServices = fetchedServices.map(service => ({
+        ...service,
+        baseFare: typeof service.baseFare === 'string' ? parseFloat(service.baseFare) : service.baseFare,
+      }));
+
+      setServices(processedServices);
     } catch (err: any) {
-      console.error('Error fetching my services:', err);
-      setError(err.message || 'An unexpected error occurred while fetching your services.');
+      console.error('Error fetching services:', err);
+      setError(err.message || 'An unexpected error occurred.');
     } finally {
       setLoading(false);
     }
   };
 
+  const fetchAssignedLocalities = async () => {
+    try {
+      const token = localStorage.getItem('firebaseIdToken');
+      if (!token) return;
+
+      const res = await fetch('http://localhost:3000/service-providers/localities', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setLocalities(data);
+      } else {
+        console.error('Failed to fetch localities');
+      }
+    } catch (err) {
+      console.error('Error loading localities:', err);
+    }
+  };
+
   useEffect(() => {
     fetchMyServices();
-  }, [router]);
+    fetchAssignedLocalities();
+  }, []);
 
   const handleToggleActive = async (serviceId: string, currentStatus: boolean) => {
-    setLoading(true); // Set loading to indicate action is in progress
-    setActionMessage(null); // Clear previous messages
+    setLoading(true);
+    setActionMessage(null);
     try {
       const token = localStorage.getItem('firebaseIdToken');
       if (!token) {
@@ -76,39 +118,31 @@ export default function MyServicesPage() {
         return;
       }
 
-      const response = await fetch(`http://localhost:3000/services/${serviceId}`, {
+      const response = await fetch(`http://localhost:3000/services/${serviceId}/status`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ isActive: !currentStatus }), // Toggle the status
+        body: JSON.stringify({ isActive: !currentStatus }),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to update service status.');
+        throw new Error(errorData.message || 'Failed to update status');
       }
 
-      const updatedService = await response.json();
-      setActionMessage('Service status updated successfully!');
-      setServices(prevServices =>
-        prevServices.map(service =>
-          service.id === serviceId ? { ...service, isActive: updatedService.service.isActive } : service
-        )
-      );
+      setActionMessage(`Service ${currentStatus ? 'deactivated' : 'activated'} successfully.`);
+      fetchMyServices();
     } catch (err: any) {
-      console.error('Error toggling service status:', err);
-      setActionMessage(err.message || 'An unexpected error occurred while updating service status.');
+      setActionMessage(err.message || 'An error occurred.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleDeleteService = async (serviceId: string) => {
-    if (!confirm('Are you sure you want to delete this service? This action cannot be undone.')) {
-      return;
-    }
+    if (!confirm('Are you sure you want to delete this service?')) return;
     setLoading(true);
     setActionMessage(null);
     try {
@@ -122,119 +156,79 @@ export default function MyServicesPage() {
       const response = await fetch(`http://localhost:3000/services/${serviceId}`, {
         method: 'DELETE',
         headers: {
-          'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to delete service.');
+        throw new Error(errorData.message || 'Failed to delete service');
       }
 
-      setActionMessage('Service deleted successfully!');
-      setServices(prevServices => prevServices.filter(service => service.id !== serviceId));
+      setActionMessage('Service deleted successfully.');
+      fetchMyServices();
     } catch (err: any) {
-      console.error('Error deleting service:', err);
-      setActionMessage(err.message || 'An unexpected error occurred while deleting the service.');
+      setActionMessage(err.message || 'An error occurred.');
     } finally {
       setLoading(false);
     }
   };
 
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <p className="text-lg text-gray-700">Loading your services...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-        <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md text-center">
-          <h2 className="text-2xl font-bold text-red-600 mb-4">Error</h2>
-          <p className="text-gray-700 mb-6">{error}</p>
-          <button
-            onClick={() => router.push('/auth/email-password')}
-            className="w-full sm:w-auto px-6 py-2 border border-transparent rounded-md shadow-sm text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700"
-          >
-            Go to Login
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-gray-100 p-8">
-      <div className="max-w-7xl mx-auto bg-white p-6 rounded-lg shadow-lg">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">My Services</h1>
-          <Link href="/services/new" className="px-5 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-            + Create New Service
-          </Link>
-        </div>
+      <div className="max-w-7xl mx-auto">
+        <h1 className="text-4xl font-extrabold text-gray-900 mb-6 text-center">My Services</h1>
 
         {actionMessage && (
-          <div className={`p-3 rounded-md text-center text-sm mb-4 ${actionMessage.includes('successfully') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+          <div className="mb-4 p-3 rounded text-sm bg-blue-100 text-blue-800 text-center">
             {actionMessage}
           </div>
         )}
 
-        {!loading && services.length === 0 && !error && (
-          <p className="text-center text-gray-600">
-            You haven't listed any services yet. Click "Create New Service" to get started!
-          </p>
-        )}
+        <div className="flex justify-between items-center mb-6">
+          <Link href="/services/new" className="bg-indigo-600 text-white px-5 py-2 rounded hover:bg-indigo-700 text-sm">
+            + Create New Service
+          </Link>
+          <Link href="/my-services/locations" className="text-sm text-purple-700 hover:underline">
+            Manage Service Areas →
+          </Link>
+        </div>
 
-        {!loading && services.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {loading ? (
+          <p className="text-center text-gray-500">Loading services...</p>
+        ) : error ? (
+          <p className="text-center text-red-500">{error}</p>
+        ) : services.length === 0 ? (
+          <p className="text-center text-gray-500">You haven't added any services yet.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
             {services.map((service) => (
-              <div key={service.id} className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden flex flex-col">
-                 {service.imageUrl && (
-                  <div className="w-full h-48 bg-gray-200 flex items-center justify-center overflow-hidden">
-                    <img
-                      src={service.imageUrl}
-                      alt={service.name}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.currentTarget.src = 'https://via.placeholder.com/400x200?text=Service+Image';
-                      }}
-                    />
-                  </div>
+              <div key={service.id} className="bg-white rounded shadow p-4 flex flex-col">
+                {service.imageUrl && (
+                  <img src={service.imageUrl} alt={service.name} className="w-full h-40 object-cover rounded mb-3" />
                 )}
-                <div className="p-5 flex flex-col flex-grow">
-                  <h2 className="text-xl font-semibold text-gray-800 mb-2">{service.name}</h2>
-                  <p className="text-gray-600 text-sm mb-3 flex-grow line-clamp-2">{service.description}</p>
-                  <p className="text-gray-700 font-bold mb-1">
-                    Price: ₹{service.price.toFixed(2)}
-                  </p>
-                  <p className="text-gray-500 text-xs mb-4">
-                    Category: {service.category || 'N/A'}
-                  </p>
-                </div>
-                <div className="flex items-center justify-between px-5 py-3 border-t border-gray-200 mt-auto">
-                  <span className={`px-3 py-1 rounded-full text-xs font-semibold ${service.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                <h2 className="text-lg font-bold text-gray-800">{service.name}</h2>
+                <p className="text-gray-600 text-sm mb-2">{service.description}</p>
+                <p className="text-sm text-gray-700">Type: {service.serviceType.name}</p>
+                <p className="text-sm text-gray-700">Category: {service.serviceType.category.name}</p>
+                <p className="text-sm text-gray-700 mb-2">Price: ₹{service.baseFare?.toFixed(2)}</p>
+                <div className="mt-auto flex justify-between items-center">
+                  <span className={`text-xs px-2 py-1 rounded-full ${service.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                     {service.isActive ? 'Active' : 'Inactive'}
                   </span>
-                  <div className="flex space-x-2">
+                  <div className="space-x-2">
                     <button
                       onClick={() => handleToggleActive(service.id, service.isActive)}
-                      className={`px-3 py-1 text-xs font-medium rounded-md ${service.isActive ? 'bg-orange-500 hover:bg-orange-600' : 'bg-green-500 hover:bg-green-600'} text-white`}
-                      disabled={loading}
+                      className="text-xs bg-yellow-500 text-white px-2 py-1 rounded hover:bg-yellow-600"
                     >
                       {service.isActive ? 'Deactivate' : 'Activate'}
                     </button>
-                    <Link href={`/my-services/edit/${service.id}`} className="px-3 py-1 text-xs font-medium rounded-md bg-blue-600 hover:bg-blue-700 text-white">
+                    <Link href={`/my-services/edit/${service.id}`} className="text-xs bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700">
                       Edit
                     </Link>
                     <button
                       onClick={() => handleDeleteService(service.id)}
-                      className="px-3 py-1 text-xs font-medium rounded-md bg-red-600 hover:bg-red-700 text-white"
-                      disabled={loading}
+                      className="text-xs bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700"
                     >
                       Delete
                     </button>
@@ -244,6 +238,20 @@ export default function MyServicesPage() {
             ))}
           </div>
         )}
+
+        {/* Assigned Localities */}
+        <div className="mt-8 bg-white p-6 rounded shadow border">
+          <h3 className="text-xl font-semibold text-gray-800 mb-4">Your Assigned Areas</h3>
+          {localities.length === 0 ? (
+            <p className="text-sm text-gray-500">No areas assigned. Visit <Link href="/my-services/locations" className="text-blue-600 underline">Manage Service Areas</Link> to assign areas.</p>
+          ) : (
+            <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
+              {localities.map(loc => (
+                <li key={loc.id}>{loc.name}</li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
     </div>
   );

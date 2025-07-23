@@ -6,7 +6,7 @@ import { Service } from './service.entity';
 import { CreateServiceDto } from './dto/create-service.dto';
 import { UpdateServiceDto } from './dto/update-service.dto';
 import * as admin from 'firebase-admin';
-import { Express } from 'express'; // FIX 1: Import Express for Express.Multer.File type
+import { Express } from 'express';
 
 @Injectable()
 export class ServiceService {
@@ -15,7 +15,6 @@ export class ServiceService {
     private servicesRepository: Repository<Service>,
   ) {}
 
-  // FIX 1: Use Express.Multer.File
   private async uploadImage(file: Express.Multer.File | undefined): Promise<string | null> {
     if (!file) {
       return null;
@@ -39,7 +38,7 @@ export class ServiceService {
 
       blobStream.on('finish', async () => {
         await fileUpload.makePublic();
-        const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(fileUpload.name)}?alt=media`;
+        const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileName}`;
         resolve(publicUrl);
       });
 
@@ -50,14 +49,14 @@ export class ServiceService {
   async createService(
     createServiceDto: CreateServiceDto,
     providerId: string,
-    file?: Express.Multer.File, // FIX 1: Use Express.Multer.File
+    file?: Express.Multer.File,
   ): Promise<Service> {
     const imageUrl = await this.uploadImage(file);
-
     const service = this.servicesRepository.create({
       ...createServiceDto,
-      providerId: providerId,
-      imageUrl: imageUrl,
+      providerId,
+      imageUrl,
+      baseFare: parseFloat(createServiceDto.baseFare as any), // Ensure baseFare is a number
     });
 
     try {
@@ -68,23 +67,60 @@ export class ServiceService {
     }
   }
 
+  // New method to fetch services for a provider with relations
+async findServicesByProviderId(providerId: string): Promise<Service[]> {
+  return this.servicesRepository.find({
+    where: { providerId },
+    relations: [
+      'serviceType',
+      'serviceType.category',
+      'serviceProvider',
+      'serviceProvider.localities', // Add this line
+    ],
+    order: { createdAt: 'DESC' },
+  });
+}
+
+
+async findServicesByLocality(localityId: string): Promise<Service[]> {
+  return this.servicesRepository
+    .createQueryBuilder('service')
+    .leftJoinAndSelect('service.serviceType', 'serviceType')
+    .leftJoinAndSelect('serviceType.category', 'category')
+    .innerJoin('service_provider_localities', 'spl', 'spl.service_provider_id = service.service_provider_id')
+    .leftJoinAndSelect('service.serviceProvider', 'serviceProvider')
+    .leftJoinAndSelect('serviceProvider.user', 'user') // ✅ This is what was missing
+    .where('spl.locality_id = :localityId', { localityId })
+    .andWhere('service.is_active = :isActive', { isActive: true })
+    .orderBy('service.created_at', 'DESC')
+    .getMany();
+}
+
+
+async findAll(): Promise<Service[]> {
+  return this.servicesRepository.find({
+    where: { isActive: true }, 
+    relations: {
+      serviceProvider: {
+        user: true,
+      },
+      serviceType: {
+        category: true,
+      },
+    },
+    order: {
+      createdAt: 'DESC',
+    },
+  });
+}
+
+
+  // FIX: Changed return type from Promise<Service | undefined> to Promise<Service | null>
   async findOne(id: string): Promise<Service | null> {
+    // Also include relations when fetching a single service
     return this.servicesRepository.findOne({
       where: { id },
-      relations: ['serviceProvider', 'serviceType'],
-    });
-  }
-
-  async findAll(): Promise<Service[]> {
-    return this.servicesRepository.find({
-      relations: ['serviceProvider', 'serviceType'],
-    });
-  }
-
-  async findServicesByProvider(providerId: string): Promise<Service[]> {
-    return this.servicesRepository.find({
-      where: { providerId },
-      relations: ['serviceType'],
+      relations: ['serviceType', 'serviceType.category'],
     });
   }
 
@@ -92,11 +128,17 @@ export class ServiceService {
     id: string,
     updateServiceDto: UpdateServiceDto,
     providerId: string,
-    file?: Express.Multer.File, // FIX 1: Use Express.Multer.File
+    file?: Express.Multer.File,
   ): Promise<Service> {
-    const service = await this.servicesRepository.findOne({ where: { id, providerId } });
+    // FIX: Use 'Service | null' for the service constant
+    const service: Service | null = await this.servicesRepository.findOne({ where: { id } });
 
     if (!service) {
+      throw new NotFoundException(`Service with ID ${id} not found.`);
+    }
+
+    // Ensure the service belongs to the authenticated provider
+    if (service.providerId !== providerId) {
       throw new NotFoundException(`Service with ID ${id} not found or you don't have permission to update it.`);
     }
 
@@ -104,21 +146,29 @@ export class ServiceService {
 
     if (file) {
       newImageUrl = await this.uploadImage(file);
-    } else if (updateServiceDto.imageUrl !== undefined) { // FIX 2: Check if imageUrl is explicitly provided and not undefined
-      newImageUrl = updateServiceDto.imageUrl; // This will now be string | null
+    } else if (updateServiceDto.imageUrl !== undefined) {
+      newImageUrl = updateServiceDto.imageUrl;
     }
-    // If no file and updateServiceDto.imageUrl is undefined (meaning property not sent),
-    // then newImageUrl retains its initial value (service.imageUrl).
 
-    // Separate imageUrl from other DTO properties to handle it explicitly.
-    // This prevents Object.assign from potentially overwriting newImageUrl with undefined from DTO.
-    const { imageUrl, ...restOfDto } = updateServiceDto;
+    // FIX: Remove 'baseFare' from destructuring if it's now part of 'restOfDto' after DTO fix
+    // If UpdateServiceDto now properly includes baseFare, this line might need adjustment
+    // depending on how you want to handle imageUrl vs. other DTO properties.
+    // For now, assuming imageUrl is handled separately as before.
+    const { imageUrl: dtoImageUrl, ...restOfDto } = updateServiceDto; // Renamed to avoid conflict
 
     // Apply other updates from DTO using Object.assign
+    // This will now include baseFare if it's in restOfDto
     Object.assign(service, restOfDto);
 
-    // Assign the determined imageUrl to the service entity
     service.imageUrl = newImageUrl;
+
+    // FIX: This check is still needed, but 'baseFare' must exist on UpdateServiceDto
+    // The 'as any' cast is a workaround if baseFare is still a string in DTO,
+    // but ideally, it should be `number | string` or just `number` in DTO.
+    if (updateServiceDto.baseFare !== undefined) {
+      service.baseFare = parseFloat(updateServiceDto.baseFare as any); // Ensure baseFare is updated as a number
+    }
+
 
     try {
       return await this.servicesRepository.save(service);
@@ -127,6 +177,18 @@ export class ServiceService {
       throw new InternalServerErrorException('Failed to update service.');
     }
   }
+
+async updateStatus(id: string, isActive: boolean, providerId: string): Promise<Service> {
+  const service = await this.servicesRepository.findOne({ where: { id } });
+
+  if (!service || service.providerId !== providerId) {
+    throw new NotFoundException(`Service with ID ${id} not found or you don't have permission to update it.`);
+  }
+
+  service.isActive = isActive;
+  return this.servicesRepository.save(service);
+}
+
 
   async deleteService(id: string, providerId: string): Promise<void> {
     const result = await this.servicesRepository.delete({ id, providerId });

@@ -1,16 +1,17 @@
-// frontend/src/app/dashboard/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { auth } from '@/lib/firebase'; // Import auth
-import { onAuthStateChanged, signOut } from 'firebase/auth'; // Import Firebase auth functions
-import Link from 'next/link'; 
+import { auth } from '@/lib/firebase';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import Link from 'next/link';
 
 interface UserInfo {
   uid: string;
   email: string | null;
   displayName: string | null;
+  phoneNumber: string | null;
+  role: string | null;
 }
 
 export default function DashboardPage() {
@@ -19,29 +20,50 @@ export default function DashboardPage() {
   const router = useRouter();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        // User is signed in
-        setUser({
-          uid: firebaseUser.uid,
-          email: firebaseUser.email,
-          displayName: firebaseUser.displayName,
-        });
-        // You might still keep the token in localStorage for backend calls,
-        // but onAuthStateChanged is the primary way to check auth status on frontend.
-        console.log('User detected by onAuthStateChanged:', firebaseUser.uid);
+        try {
+          const idToken = await firebaseUser.getIdToken();
+          const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/auth/profile`, {
+            headers: {
+              Authorization: `Bearer ${idToken}`,
+            },
+          });
+
+          if (!response.ok) throw new Error('Failed to fetch user profile from backend');
+
+          const backendUser = await response.json();
+
+          setUser({
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            displayName: backendUser.user.displayName,
+            phoneNumber: backendUser.user.phoneNumber || null,
+            role: backendUser.user.role,
+          });
+
+          localStorage.setItem('userRole', backendUser.user.role);
+          localStorage.setItem('userId', backendUser.user.id);
+
+        } catch (error) {
+          console.error('Error fetching backend user info:', error);
+          setUser({
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            displayName: firebaseUser.displayName || null,
+            phoneNumber: null,
+            role: localStorage.getItem('userRole') || null,
+          });
+        }
       } else {
-        // User is signed out
-        console.log('No Firebase user detected. Redirecting to auth page.');
         setUser(null);
-        localStorage.removeItem('firebaseIdToken'); // Clear token on logout
+        localStorage.removeItem('firebaseIdToken');
         localStorage.removeItem('currentUserUid');
-        router.push('/auth/email-password'); // Redirect to your new auth page
+        router.push('/auth/email-password');
       }
       setLoading(false);
     });
 
-    // Cleanup subscription on component unmount
     return () => unsubscribe();
   }, [router]);
 
@@ -50,7 +72,6 @@ export default function DashboardPage() {
     try {
       await signOut(auth);
       console.log('Firebase logout successful!');
-      // onAuthStateChanged will handle the redirection after signOut
     } catch (error) {
       console.error('Error during Firebase logout:', error);
       setLoading(false);
@@ -66,10 +87,7 @@ export default function DashboardPage() {
     );
   }
 
-  if (!user) {
-    // If not loading and no user, it means onAuthStateChanged redirected or is about to.
-    return null; // Or a simple message like "Access Denied, Redirecting..."
-  }
+  if (!user) return null;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 py-8">
@@ -78,9 +96,7 @@ export default function DashboardPage() {
           <h1 className="text-4xl font-bold text-gray-900 mb-2">
             Welcome back, {user.displayName || user.email?.split('@')[0]}!
           </h1>
-          <p className="text-gray-600">
-            Here's what's happening with your ServeMee account
-          </p>
+          <p className="text-gray-600">Here's what's happening with your ServeMee account</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
@@ -107,7 +123,7 @@ export default function DashboardPage() {
               </div>
             </div>
             <p className="text-2xl font-bold text-indigo-600 mb-2 capitalize">
-              {localStorage.getItem('userRole')?.replace('_', ' ') || 'User'}
+              {user.role?.replace('_', ' ') || 'User'}
             </p>
             <p className="text-gray-600 text-sm">Your current account type</p>
           </div>
@@ -123,12 +139,12 @@ export default function DashboardPage() {
             </div>
             <div className="space-y-2">
               <Link
-                href="/service-categories"
+                href="/services"
                 className="block text-indigo-600 hover:text-indigo-800 text-sm font-medium"
               >
-                Browse Services →
+                Find Available Services →
               </Link>
-              {localStorage.getItem('userRole') === 'service_provider' && (
+              {user.role === 'service_provider' && (
                 <Link
                   href="/my-services"
                   className="block text-indigo-600 hover:text-indigo-800 text-sm font-medium"
@@ -152,18 +168,32 @@ export default function DashboardPage() {
               <p className="text-gray-900 bg-gray-50 px-4 py-2 rounded-lg">{user.displayName || 'Not set'}</p>
             </div>
             <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Phone Number</label>
+              <p className="text-gray-900 bg-gray-50 px-4 py-2 rounded-lg">{user.phoneNumber || 'Not provided'}</p>
+            </div>
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">User ID</label>
               <p className="text-gray-900 bg-gray-50 px-4 py-2 rounded-lg font-mono text-sm">{user.uid}</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Account Type</label>
               <p className="text-gray-900 bg-gray-50 px-4 py-2 rounded-lg capitalize">
-                {localStorage.getItem('userRole')?.replace('_', ' ') || 'User'}
+                {user.role?.replace('_', ' ') || 'User'}
               </p>
             </div>
+          </div>
+
+          <div className="mt-6 text-right">
+            <Link
+              href="/profile"
+              className="inline-block bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-4 py-2 rounded-lg"
+            >
+              Edit Profile
+            </Link>
           </div>
         </div>
       </div>
     </div>
   );
 }
+

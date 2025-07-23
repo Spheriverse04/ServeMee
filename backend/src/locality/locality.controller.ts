@@ -14,17 +14,21 @@ import { Public } from '../auth/public.decorator';
 export class LocalityController {
   constructor(private readonly localityService: LocalityService) {}
 
-  @Post()
-  @Roles(UserRole.ADMIN)
-  create(@Body() createLocalityDto: CreateLocalityDto) {
-    return this.localityService.create(createLocalityDto);
-  }
+@Post(':districtId')
+@Roles(UserRole.ADMIN)
+create(
+  @Param('districtId') districtId: string,
+  @Body() createLocalityDto: CreateLocalityDto
+) {
+  return this.localityService.create(createLocalityDto, districtId);
+}
 
-  @Get()
-  @Public()
-  findAll() {
-    return this.localityService.findAll();
-  }
+
+@Get()
+@Public()
+findAll(@Query('districtId') districtId?: string) {
+  return this.localityService.findAll(districtId);
+}
 
   @Get('search')
   @Public()

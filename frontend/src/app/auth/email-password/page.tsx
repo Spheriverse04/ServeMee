@@ -63,8 +63,21 @@ export default function LoginPage() {
         localStorage.setItem('userRole', backendUser.user.role);
         localStorage.setItem('userId', backendUser.user.id);
 
-        // Redirect to dashboard or appropriate page after successful login and backend verification
-        router.push('/dashboard'); // <-- This is the redirection
+        // Redirect based on user role
+switch (backendUser.user.role) {
+  case 'admin':
+    router.push('/admin/dashboard');
+    break;
+  case 'service_provider':
+    router.push('/dashboard'); // or /provider/dashboard if separate
+    break;
+  case 'consumer':
+    router.push('/dashboard'); // or /consumer/dashboard if separate
+    break;
+  default:
+    router.push('/dashboard');
+}
+// <-- This is the redirection
       } catch (backendError: any) {
         console.error('Backend verification error:', backendError);
         setError(`Login successful with Firebase, but backend verification failed: ${backendError.message}. Please try again.`);

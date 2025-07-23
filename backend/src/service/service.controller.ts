@@ -25,7 +25,8 @@ import { RolesGuard } from '../auth/roles/roles.guard';
 import { Roles } from '../auth/roles/roles.decorator';
 import { UserRole } from '../auth/roles/roles.enum';
 import { User } from '../user/user.entity';
-import { Express } from 'express'; // Import Express for Multer.File type
+import { Public } from '../auth/public.decorator';
+import { Express } from 'express';
 
 @Controller('services')
 @UseGuards(FirebaseAuthGuard, RolesGuard)
@@ -39,13 +40,24 @@ export class ServiceController {
   async create(
     @Body() createServiceDto: CreateServiceDto,
     @Req() req: Request & { user: User },
-    @UploadedFile() file?: Express.Multer.File, // Changed to Express.Multer.File
+    @UploadedFile() file?: Express.Multer.File,
   ) {
     const providerId = req.user.id;
-    const service = await this.serviceService.createService(createServiceDto, providerId, file);
+    const newService = await this.serviceService.createService(createServiceDto, providerId, file);
     return {
       message: 'Service created successfully!',
-      service,
+      service: newService,
+    };
+  }
+
+  @Get('my-services/list')
+  @Roles(UserRole.SERVICE_PROVIDER)
+  async getMyServices(@Req() req: Request & { user: User }) {
+    const providerId = req.user.id;
+    const services = await this.serviceService.findServicesByProviderId(providerId);
+    return {
+      message: 'My services fetched successfully!',
+      services: services, // Return services in an object for consistency with frontend
     };
   }
 
@@ -61,22 +73,38 @@ export class ServiceController {
     };
   }
 
-  @Patch(':id')
-  @Roles(UserRole.SERVICE_PROVIDER)
-  @UseInterceptors(FileInterceptor('image'))
-  async update(
-    @Param('id') id: string,
-    @Body() updateServiceDto: UpdateServiceDto,
-    @Req() req: Request & { user: User },
-    @UploadedFile() file?: Express.Multer.File, // Changed to Express.Multer.File
-  ) {
-    const providerId = req.user.id;
-    const updatedService = await this.serviceService.updateService(id, updateServiceDto, providerId, file);
-    return {
-      message: 'Service updated successfully!',
-      service: updatedService,
-    };
-  }
+@Patch(':id/status')
+@Roles(UserRole.SERVICE_PROVIDER)
+async updateStatus(
+  @Param('id') id: string,
+  @Body('isActive') isActive: boolean,
+  @Req() req: Request & { user: User },
+) {
+  const providerId = req.user.id;
+  const updatedService = await this.serviceService.updateStatus(id, isActive, providerId);
+  return {
+    message: `Service ${isActive ? 'activated' : 'deactivated'} successfully!`,
+    service: updatedService,
+  };
+}
+
+@Get()
+@Public()
+async findAllServices() {
+  return this.serviceService.findAll();
+}
+
+
+@Get('by-locality/:localityId')
+@Public()
+//@Roles(UserRole.CONSUMER) // or remove if public
+async getServicesByLocality(@Param('localityId') localityId: string) {
+  const services = await this.serviceService.findServicesByLocality(localityId);
+  return {
+    message: 'Services available in this locality fetched successfully!',
+    services,
+  };
+}
 
   @Delete(':id')
   @Roles(UserRole.SERVICE_PROVIDER)
@@ -87,16 +115,5 @@ export class ServiceController {
   ) {
     const providerId = req.user.id;
     await this.serviceService.deleteService(id, providerId);
-  }
-
-  @Get('my-services/list')
-  @Roles(UserRole.SERVICE_PROVIDER)
-  async getMyServices(@Req() req: Request & { user: User }) {
-    const providerId = req.user.id;
-    const services = await this.serviceService.findServicesByProvider(providerId);
-    return {
-      message: 'Provider services fetched successfully!',
-      services,
-    };
   }
 }

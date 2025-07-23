@@ -1,5 +1,5 @@
 // src/auth/dto/update-profile.dto.ts
-import { IsString, IsOptional, IsUrl, IsEmail, IsPhoneNumber, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsUrl, IsEmail, IsPhoneNumber, MaxLength, Matches } from 'class-validator';
 
 export class UpdateProfileDto {
   // REMOVED: fullName as it does not exist in the database schema.
@@ -18,7 +18,7 @@ export class UpdateProfileDto {
   email?: string;
 
   @IsOptional()
-  @IsPhoneNumber()
+  @IsPhoneNumber('IN', { message: 'Phone number must be a valid Indian number' })
   phoneNumber?: string;
 
   @IsOptional()

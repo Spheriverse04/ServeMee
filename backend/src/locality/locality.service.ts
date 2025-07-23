@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import { Locality } from './locality.entity';
 import { CreateLocalityDto } from './dto/create-locality.dto';
 import { UpdateLocalityDto } from './dto/update-locality.dto';
+import { District } from '../district/district.entity';
 
 @Injectable()
 export class LocalityService {
@@ -13,24 +14,41 @@ export class LocalityService {
     private localityRepository: Repository<Locality>,
   ) {}
 
-  async create(createLocalityDto: CreateLocalityDto): Promise<Locality> {
-    try {
-      const locality = this.localityRepository.create(createLocalityDto);
-      return await this.localityRepository.save(locality);
-    } catch (error) {
-      if (error.code === '23505') { // Unique constraint violation
-        throw new BadRequestException('A locality with this name already exists.');
-      }
-      throw error;
+async create(createLocalityDto: CreateLocalityDto, districtId: string): Promise<Locality> {
+  try {
+    const district = await this.localityRepository.manager.findOne(District, { where: { id: districtId } });
+    if (!district) {
+      throw new NotFoundException(`District with ID "${districtId}" not found.`);
     }
+
+    const locality = this.localityRepository.create({
+      ...createLocalityDto,
+      district,
+    });
+
+    return await this.localityRepository.save(locality);
+  } catch (error) {
+    if (error.code === '23505') {
+      throw new BadRequestException('A locality with this name already exists.');
+    }
+    throw error;
+  }
+}
+
+async findAll(districtId?: string): Promise<Locality[]> {
+  const where: any = { isActive: true };
+
+  if (districtId) {
+    where.district = { id: districtId };
   }
 
-  async findAll(): Promise<Locality[]> {
-    return this.localityRepository.find({
-      where: { isActive: true },
-      order: { name: 'ASC' },
-    });
-  }
+  return this.localityRepository.find({
+    where,
+    relations: ['district'], // Ensure relation is joined
+    order: { name: 'ASC' },
+  });
+}
+
 
   async findOne(id: string): Promise<Locality> {
     const locality = await this.localityRepository.findOne({

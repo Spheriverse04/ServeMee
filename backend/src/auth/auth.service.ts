@@ -11,6 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DeepPartial, Repository } from 'typeorm';
 import { User } from '../user/user.entity';
 import { RegisterUserDto } from './dto/register-user.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import * as admin from 'firebase-admin';
 import { UserRole } from './roles/roles.enum';
 
@@ -20,6 +21,18 @@ export class AuthService {
     @InjectRepository(User)
     private userRepository: Repository<User>,
   ) {}
+
+  async getProfile(firebaseUid: string): Promise<User> {
+    const user = await this.userRepository.findOne({
+      where: { firebaseUid },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return user;
+  }
 
   /**
    * Registers a new user in your application's database only.
@@ -120,4 +133,14 @@ export class AuthService {
   async findUserByFirebaseUid(firebaseUid: string): Promise<User | null> {
     return this.userRepository.findOne({ where: { firebaseUid } });
   }
+  
+  async updateProfile(firebaseUid: string, dto: UpdateProfileDto): Promise<User> {
+  const user = await this.userRepository.findOne({ where: { firebaseUid } });
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  Object.assign(user, dto);
+  return this.userRepository.save(user);
+}
 }

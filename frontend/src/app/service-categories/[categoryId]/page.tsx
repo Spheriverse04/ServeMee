@@ -1,7 +1,7 @@
 // frontend/src/app/service-categories/[categoryId]/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react'; // Added useCallback
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -10,10 +10,20 @@ interface ServiceType {
   name: string;
   description?: string;
   baseFareType: string;
+  // The `category` object is still expected if `relations: ['category']` is used in backend
+  // but we will fetch the category name independently for robustness.
   category: {
     id: string;
     name: string;
   };
+}
+
+// Define interface for ServiceCategory if fetching independently
+interface ServiceCategory {
+  id: string;
+  name: string;
+  description?: string;
+  iconUrl?: string;
 }
 
 export default function ServiceTypesPage() {
@@ -25,31 +35,52 @@ export default function ServiceTypesPage() {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-  useEffect(() => {
-    if (categoryId) {
-      fetchServiceTypes();
-    }
-  }, [categoryId]);
+  // Get backend URL from environment variables
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
 
-  const fetchServiceTypes = async () => {
+  // Memoize fetch functions
+  const fetchCategoryName = useCallback(async () => {
     try {
-      const response = await fetch(`http://localhost:3000/service-types/by-category/${categoryId}`);
-      
+      const response = await fetch(`${backendUrl}/service-categories/${categoryId}`);
+      if (!response.ok) {
+        // If category not found, it's an error for this page context
+        throw new Error('Failed to fetch category details. Category might not exist or is inactive.');
+      }
+      const data: ServiceCategory = await response.json();
+      setCategoryName(data.name);
+    } catch (err: any) {
+      console.error('Error fetching category name:', err);
+      // Set a generic error if category name can't be fetched
+      setError(err.message);
+    }
+  }, [categoryId, backendUrl]);
+
+  const fetchServiceTypesForCategory = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null); // Clear previous errors
+      const response = await fetch(`${backendUrl}/service-types/by-category/${categoryId}`);
+
       if (!response.ok) {
         throw new Error('Failed to fetch service types');
       }
 
-      const data = await response.json();
+      const data: ServiceType[] = await response.json();
       setServiceTypes(data);
-      if (data.length > 0) {
-        setCategoryName(data[0].category.name);
-      }
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [categoryId, backendUrl]);
+
+  useEffect(() => {
+    if (categoryId) {
+      // Fetch category name and service types in parallel
+      fetchCategoryName();
+      fetchServiceTypesForCategory();
+    }
+  }, [categoryId, fetchCategoryName, fetchServiceTypesForCategory]); // Added fetch functions to dependencies
 
   if (loading) {
     return (
@@ -65,6 +96,9 @@ export default function ServiceTypesPage() {
         <div className="bg-white p-8 rounded-lg shadow-md">
           <h2 className="text-2xl font-bold text-red-600 mb-4">Error</h2>
           <p className="text-gray-700">{error}</p>
+          <Link href="/service-categories" className="mt-4 text-indigo-600 hover:underline block">
+            Go back to Service Categories
+          </Link>
         </div>
       </div>
     );
@@ -74,8 +108,8 @@ export default function ServiceTypesPage() {
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 py-8">
       <div className="max-w-6xl mx-auto">
         <div className="mb-12 px-4 sm:px-6 lg:px-8">
-          <Link 
-            href="/service-categories" 
+          <Link
+            href="/service-categories"
             className="group inline-flex items-center space-x-2 text-indigo-600 hover:text-indigo-800 mb-6 transition-colors duration-200"
           >
             <svg className="w-5 h-5 group-hover:-translate-x-1 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -84,7 +118,8 @@ export default function ServiceTypesPage() {
             <span>Back to Categories</span>
           </Link>
           <div className="text-center">
-            <h1 className="text-4xl font-bold text-gray-900 mb-4">{categoryName}</h1>
+            {/* Display categoryName even if no service types are found */}
+            <h1 className="text-4xl font-bold text-gray-900 mb-4">{categoryName || 'Loading Category...'}</h1>
             <p className="text-xl text-gray-600 max-w-2xl mx-auto">
               Choose from our available services and get connected with verified providers
             </p>
@@ -115,7 +150,7 @@ export default function ServiceTypesPage() {
                     {serviceType.name}
                   </h3>
                 </div>
-                
+
                 {serviceType.description && (
                   <p className="text-gray-600 mb-6 leading-relaxed">{serviceType.description}</p>
                 )}
@@ -148,5 +183,3 @@ export default function ServiceTypesPage() {
     </div>
   );
 }
-
-
