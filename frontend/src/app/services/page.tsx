@@ -104,7 +104,7 @@ export default function ServicesPage() {
       .then(data => setServices(data.services || []))
       .catch((err: any) => {
         console.error('Error fetching services:', err);
-        setError(err.message || 'Error loading services');
+        setError('No services available in this area yet. Please try another location.');
       })
       .finally(() => setLoading(false));
   }, [selectedLocalityId]);

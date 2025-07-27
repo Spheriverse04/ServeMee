@@ -4,6 +4,9 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { format, parseISO } from 'date-fns';
+import ProtectedRoute from '@/components/ProtectedRoute';
+import { api } from '@/utils/api';
+import toast from 'react-hot-toast';
 
 interface Booking {
   id: string;
@@ -162,6 +165,7 @@ export default function MyBookingsPage() {
   }
 
   return (
+    <ProtectedRoute allowedRoles={['consumer']}>
     <div className="min-h-screen bg-gray-100 p-8">
       <div className="max-w-4xl mx-auto">
         <h1 className="text-4xl font-extrabold text-gray-900 mb-8 text-center">
@@ -227,5 +231,6 @@ export default function MyBookingsPage() {
         )}
       </div>
     </div>
+    </ProtectedRoute>
   );
 }

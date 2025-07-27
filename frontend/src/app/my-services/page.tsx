@@ -3,6 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import ProtectedRoute from '@/components/ProtectedRoute';
+import { api } from '@/utils/api';
+import toast from 'react-hot-toast';
 
 // --- Interfaces ---
 interface ServiceCategoryFromBackend {
@@ -45,21 +48,7 @@ export default function MyServicesPage() {
     setLoading(true);
     setError(null);
     try {
-      const token = localStorage.getItem('firebaseIdToken');
-      if (!token) {
-        setError('Authentication token not found. Please log in.');
-        router.push('/auth/email-password');
-        return;
-      }
-
-      const response = await fetch('http://localhost:3000/services/my-services/list', {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
+      const data = await api.get('/services/my-services/list');
       const fetchedServices = Array.isArray(data)
         ? data
         : Array.isArray(data.services)
@@ -74,7 +63,8 @@ export default function MyServicesPage() {
       setServices(processedServices);
     } catch (err: any) {
       console.error('Error fetching services:', err);
-      setError(err.message || 'An unexpected error occurred.');
+      toast.error(err.message || 'Failed to load services');
+      setError('Failed to load your services. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -82,21 +72,8 @@ export default function MyServicesPage() {
 
   const fetchAssignedLocalities = async () => {
     try {
-      const token = localStorage.getItem('firebaseIdToken');
-      if (!token) return;
-
-      const res = await fetch('http://localhost:3000/service-providers/localities', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setLocalities(data);
-      } else {
-        console.error('Failed to fetch localities');
-      }
+      const data = await api.get('/service-providers/localities');
+      setLocalities(data);
     } catch (err) {
       console.error('Error loading localities:', err);
     }
@@ -108,73 +85,30 @@ export default function MyServicesPage() {
   }, []);
 
   const handleToggleActive = async (serviceId: string, currentStatus: boolean) => {
-    setLoading(true);
     setActionMessage(null);
     try {
-      const token = localStorage.getItem('firebaseIdToken');
-      if (!token) {
-        setActionMessage('Authentication token not found. Please log in.');
-        router.push('/auth/email-password');
-        return;
-      }
-
-      const response = await fetch(`http://localhost:3000/services/${serviceId}/status`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ isActive: !currentStatus }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to update status');
-      }
-
-      setActionMessage(`Service ${currentStatus ? 'deactivated' : 'activated'} successfully.`);
+      await api.patch(`/services/${serviceId}/status`, { isActive: !currentStatus });
+      toast.success(`Service ${currentStatus ? 'deactivated' : 'activated'} successfully`);
       fetchMyServices();
     } catch (err: any) {
-      setActionMessage(err.message || 'An error occurred.');
-    } finally {
-      setLoading(false);
+      toast.error(err.message || 'Failed to update service status');
     }
   };
 
   const handleDeleteService = async (serviceId: string) => {
     if (!confirm('Are you sure you want to delete this service?')) return;
-    setLoading(true);
     setActionMessage(null);
     try {
-      const token = localStorage.getItem('firebaseIdToken');
-      if (!token) {
-        setActionMessage('Authentication token not found. Please log in.');
-        router.push('/auth/email-password');
-        return;
-      }
-
-      const response = await fetch(`http://localhost:3000/services/${serviceId}`, {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to delete service');
-      }
-
-      setActionMessage('Service deleted successfully.');
+      await api.delete(`/services/${serviceId}`);
+      toast.success('Service deleted successfully');
       fetchMyServices();
     } catch (err: any) {
-      setActionMessage(err.message || 'An error occurred.');
-    } finally {
-      setLoading(false);
+      toast.error(err.message || 'Failed to delete service');
     }
   };
 
   return (
+    <ProtectedRoute allowedRoles={['service_provider']}>
     <div className="min-h-screen bg-gray-100 p-8">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-4xl font-extrabold text-gray-900 mb-6 text-center">My Services</h1>
@@ -254,6 +188,7 @@ export default function MyServicesPage() {
         </div>
       </div>
     </div>
+    </ProtectedRoute>
   );
 }
 

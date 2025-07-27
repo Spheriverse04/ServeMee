@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { getDatabaseConfig } from './config/database.config';
 
 // Entities
 import { User } from './user/user.entity';
@@ -40,31 +41,9 @@ import { ServiceProviderModule } from './service-provider/service-provider.modul
       isGlobal: true,
       envFilePath: '.env',
     }),
-    TypeOrmModule.forRoot({
-      type: 'postgres',
-      host: process.env.DATABASE_HOST,
-      port: parseInt(process.env.DATABASE_PORT || '5432', 10),
-      username: process.env.DATABASE_USERNAME,
-      password: process.env.DATABASE_PASSWORD,
-      database: process.env.DATABASE_NAME,
-      entities: [
-        User,
-        ServiceProvider,
-        Service,
-        Booking,
-        Locality,
-        ServiceCategory,
-        ServiceType,
-        ServiceRequest,
-        RatingReview,
-        Country,
-        State,
-        District,
-      ],
-      synchronize: false,
-      logging: true,
-      migrations: [__dirname + '/migration/**/*.ts'],
-      migrationsRun: false,
+    TypeOrmModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: getDatabaseConfig,
     }),
     AuthModule,
     ServiceModule,
@@ -77,7 +56,7 @@ import { ServiceProviderModule } from './service-provider/service-provider.modul
     CountryModule,
     StateModule,
     DistrictModule,
-    ServiceProviderModule, // ✅ REGISTERED HERE
+    ServiceProviderModule,
   ],
   controllers: [AppController],
   providers: [AppService, FirebaseService],

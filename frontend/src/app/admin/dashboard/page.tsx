@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import ProtectedRoute from '@/components/ProtectedRoute';
 
 interface DashboardStats {
   totalUsers: number;
@@ -76,6 +77,7 @@ export default function AdminDashboard() {
   }
 
   return (
+    <ProtectedRoute allowedRoles={['admin']}>
     <div className="min-h-screen bg-gray-100 p-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
@@ -141,6 +143,7 @@ export default function AdminDashboard() {
         </div>
       </div>
     </div>
+    </ProtectedRoute>
   );
 }
 

@@ -5,7 +5,10 @@ import { AppModule } from './app.module';
 import * as admin from 'firebase-admin'; // Import firebase-admin
 import * as path from 'path'; // Import path module
 import { env } from 'process';
-import { ValidationPipe } from '@nestjs/common'; // Add ValidationPipe import
+import { ValidationPipe, Logger } from '@nestjs/common';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
 // Define the path to your service account key file
 const serviceAccountPath = path.resolve(__dirname, '../firebase-admin-sdk.json');
@@ -16,41 +19,61 @@ if (!admin.apps.length) {
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccountPath),
     });
-    console.log('Firebase Admin SDK initialized globally in main.ts.');
+    Logger.log('Firebase Admin SDK initialized globally', 'Bootstrap');
   } catch (error) {
-    console.error('Failed to initialize Firebase Admin SDK:', error);
+    Logger.error('Failed to initialize Firebase Admin SDK', error, 'Bootstrap');
     process.exit(1); // Exit if Firebase initialization fails
   }
 } else {
-  console.log('Firebase Admin SDK already initialized globally (likely during hot-reload).');
+  Logger.log('Firebase Admin SDK already initialized', 'Bootstrap');
 }
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const logger = new Logger('Bootstrap');
 
   // Enable CORS for development
-  // In production, restrict 'origin' to your actual frontend domain(s).
   app.enableCors({
-    origin: ['http://localhost:3001', 'http://localhost:3000'], // Allow your Next.js dev server and backend itself
+    origin: process.env.NODE_ENV === 'production' 
+      ? process.env.FRONTEND_URL?.split(',') || []
+      : ['http://localhost:3001', 'http://localhost:3000'],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-    credentials: true, // Allow sending cookies/authorization headers
+    credentials: true,
   });
 
-  // Add global validation pipe for DTOs (important for robust API)
+  // Global validation pipe
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: true, // Strips properties that are not defined in the DTO
-      forbidNonWhitelisted: true, // Throws an error if non-whitelisted properties are present
-      transform: true, // Automatically transforms payloads to be instances of DTO classes
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
       transformOptions: {
-        enableImplicitConversion: true, // Allows automatic type conversion (e.g., string to number)
+        enableImplicitConversion: true,
       },
     }),
   );
 
-  // Add global API prefix if desired, e.g., app.setGlobalPrefix('api');
-  const port = parseInt(env.PORT || '3000', 10); // Use environment variable for port, default to 3000
+  // Global exception filter
+  app.useGlobalFilters(new HttpExceptionFilter());
+
+  // Global logging interceptor
+  app.useGlobalInterceptors(new LoggingInterceptor());
+
+  // Swagger documentation
+  if (process.env.NODE_ENV !== 'production') {
+    const config = new DocumentBuilder()
+      .setTitle('ServeMee API')
+      .setDescription('Lightning Fast Service Delivery Platform API')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+    logger.log('Swagger documentation available at /api/docs');
+  }
+
+  const port = parseInt(env.PORT || '3000', 10);
   await app.listen(port);
-  console.log(`Application is running on: ${await app.getUrl()}`);
+  logger.log(`Application is running on: ${await app.getUrl()}`);
 }
 bootstrap();

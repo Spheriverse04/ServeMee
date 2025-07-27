@@ -34,32 +34,12 @@ export default function ServiceCategoriesPage() {
     try {
       const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
 
-      // ** Retrieve Firebase ID token from localStorage **
-      const firebaseIdToken = localStorage.getItem('firebaseIdToken');
-
-      if (!firebaseIdToken) {
-        // If no token is found, redirect to login page
-        router.push('/auth/email-password');
-        setError('Authentication token missing. Please log in.');
-        setLoading(false);
-        return;
-      }
-
-      const response = await fetch(`${backendUrl}/service-categories`, {
-        headers: {
-          Authorization: `Bearer ${firebaseIdToken}`,
-        },
-      });
+      // Service categories are public, no auth required
+      const response = await fetch(`${backendUrl}/service-categories`);
 
       if (!response.ok) {
-        if (response.status === 401) {
-          // Token expired or invalid, redirect to login
-          router.push('/auth/email-password');
-          setError('Session expired. Please log in again.');
-        } else {
-          const errorData = await response.json();
-          throw new Error(errorData.message || 'Failed to fetch service categories');
-        }
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to fetch service categories');
       }
 
       const data: ServiceCategory[] = await response.json();
@@ -70,7 +50,7 @@ export default function ServiceCategoriesPage() {
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     fetchServiceCategories();
